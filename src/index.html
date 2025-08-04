@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ADB Device Detector</title>
+  <style>
+    #status {
+      padding: 20px;
+      border: 3px solid #ccc;
+      border-radius: 8px;
+      font-family: sans-serif;
+      text-align: center;
+      max-width: 300px;
+      margin: 50px auto;
+      font-size: 1.2rem;
+      transition: all 0.3s ease;
+    }
+    .enabled {
+      background-color: #d4edda;
+      border-color: #28a745;
+      color: #155724;
+    }
+    .disabled {
+      background-color: #f8d7da;
+      border-color: #dc3545;
+      color: #721c24;
+    }
+    #connectBtn {
+      display: block;
+      margin: 20px auto;
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">Connect Android device via USB</div>
+  <button id="connectBtn">Connect Device</button>
+  <script src="bundle.js"></script>
+</body>
+</html>

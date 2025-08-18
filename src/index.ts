@@ -2,6 +2,8 @@ import { AdbDaemonWebUsbDeviceObserver} from "@yume-chan/adb-daemon-webusb";
 import { Adb, AdbSync } from "@yume-chan/adb";
 import { ReadableStream, TextDecoderStream, WritableStream } from "@yume-chan/stream-extra";
 import { PackageManager } from "@yume-chan/android-bin";
+import JSZip from "jszip";
+import { saveAs } from 'file-saver';
 
 import {getDeviceState, setDeviceState, connectToDevice, disconnectDevice, initializeCredentials} from "./state";
 
@@ -18,6 +20,9 @@ const uninstallSection = document.getElementById('uninstallSection') as HTMLDivE
 const appList = document.getElementById('appList') as HTMLSelectElement;
 const uninstallBtn = document.getElementById('uninstallBtn') as HTMLButtonElement;
 const refreshBtn = document.getElementById('refreshBtn') as HTMLButtonElement;
+const downloadSection = document.getElementById('downloadSection') as HTMLDivElement;
+const downloadProgressBar = document.getElementById('downloadProgressBar') as HTMLDivElement;
+const downloadStatus = document.getElementById('downloadStatus') as HTMLParagraphElement;
 
 // Browser compatibility check
 if (!navigator.usb) {
@@ -477,6 +482,12 @@ async function uninstallSelectedApp() {
   statusText.textContent = `Uninstalling ${packageName}...`;
   statusText.className = 'status-text';
 
+  // Show download UI TODO can be purged
+  downloadSection.style.display = 'block';
+  downloadSection.textContent = `Preparing to download ${packageName}...`;
+
+  await backupApk(adbClient, packageName);
+
   try {
     const adbCommand = ['pm', 'uninstall', packageName];
     const {output, exitCode} = await adbRun(adbClient!, adbCommand);
@@ -490,6 +501,11 @@ async function uninstallSelectedApp() {
 
     // Refresh app list
     await loadInstalledApps();
+
+    // Hide download section after delay
+    setTimeout(() => {
+      downloadSection.style.display = 'none';
+    }, 3000);
 
   } catch (error) {
     console.error('Uninstall error:', error);
@@ -529,6 +545,142 @@ async function adbRun(adbClient: Adb, command: string | readonly string[]) : Pro
 
   ret.exitCode = await shell.exited;
   return ret;
+}
+
+// APK backup function
+async function backupApk(client: Adb, packageName: string) {
+  try {
+    setDeviceState({isDownloading: true, downloadProgress: 0});
+
+    // Get package info
+    const packageInfo = await getPackageInfo(client, packageName);
+
+    // Get APK paths
+    const apkPaths = await getAPKPaths(client, packageName);
+
+    // Download APKs
+    const state = getDeviceState();
+    const sync = await state.client?.sync();
+    const apkFiles: {path: string, data: Uint8Array}[] = [];
+
+    for (let i = 0; i < apkPaths.length; i++) {
+      const path = apkPaths[i];
+      downloadStatus.textContent = `Downloading APK (${i+1}/${apkPaths.length})...`;
+
+      const data = await downloadFile(sync!, path, (progress) => {
+        // TODO mache cazzo e' sta roba
+        const fileProgress = Math.round(progress * 100);
+        const totalProgress = Math.round(((i + progress) / apkPaths.length) * 100);
+        downloadProgressBar.style.width = `${totalProgress}%`;
+        setDeviceState({ downloadProgress: totalProgress });
+      });
+      apkFiles.push({path, data});
+    }
+
+    // Create filename with version
+    const versionStr = packageInfo.versionName.replace(/[^a-z0-9]/gi, '_');
+    const baseFilename = `${packageName}_${versionStr}`;
+
+    if(apkFiles.length === 1) {
+      const apkFileType = 'application/vnd.android.package-archive';
+      saveAs( new Blob([apkFiles[0].data as BlobPart], {type: apkFileType}));
+    } else {
+      // Multiple APKs installation
+      const zip = new JSZip();
+
+      apkFiles.forEach((file, index) => {
+        const filename = file.path.split('/').pop() || `base-${index}.apk`;
+        zip.file(filename, file.data);
+      });
+
+      // TODO Add package info
+      // zip.file('package-info.txt',
+      //   `Package: ${packageName}\nVersion: ${packageInfo.versionName}\nVersion Code: ${packageInfo.versionCode}`);
+
+      const content = await zip.generateAsync({type: 'blob'});
+      saveAs(content, `${baseFilename}.zip`);
+
+      downloadStatus.textContent = `Downloaded ${apkFiles.length} APK file(s)`;
+    }
+  } catch (error) {
+    throw error;
+  } finally {
+    setDeviceState({ isDownloading: false, downloadProgress: 0});
+  }
+}
+
+
+
+async function getPackageInfo(adbClient: Adb, packageName: string) {
+  const adbCommand = ["dumpsys", "package", packageName];
+  const {output, exitCode} = await adbRun(adbClient, adbCommand);
+  if(exitCode !== 0) {
+    console.error(`[+] Dumpsys returned ${output}`)
+  }
+
+  // Parse version info
+  const versionMatch = output.match(/versionName=([^\s]+)/);
+  const versionCodeMatch = output.match(/versionCode=(\d+)/);
+
+  return {
+    versionName: versionMatch ? versionMatch[1] : 'unknown',
+    versionCode: versionCodeMatch ? parseInt(versionCodeMatch[1], 10) : 0
+  };
+}
+
+async function getAPKPaths(adbClient: Adb, packageName: string) {
+  const adbCommand = ["pm", "path", packageName];
+  const {output, exitCode} = await adbRun(adbClient, adbCommand);
+  if(exitCode !== 0) {
+    console.error(`Pm path ${packageName} returned error ${output}`);
+  }
+
+  return output
+    .split('\n')
+    .filter(line => line.startsWith('package:'))
+    .map(line => line.substring(8).trim());
+}
+
+// File download with progress
+async function downloadFile(
+  sync: AdbSync,
+  remotePath: string,
+  progressCallback: (progress: number) => void
+): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
+
+  // Get file size first
+  const stat = await sync.lstat(remotePath);
+  const totalSize = stat.size;
+
+  // Read file in chunks
+  const readable = sync.read(remotePath);
+  const reader = readable.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    chunks.push(value);
+    receivedBytes += value.byteLength;
+
+    // Update progress
+    const progress = totalSize > 0 ? receivedBytes / Number(totalSize) : 0;
+    progressCallback(progress);
+  }
+
+  // Combine chunks
+  const totalLength = chunks.reduce((acc, chunk) => acc + chunk.byteLength, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return result;
 }
 
 refreshBtn.addEventListener('click', loadInstalledApps);

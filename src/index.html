@@ -185,6 +185,11 @@
     padding: 10px;
   }
 
+  /* Download status */
+  #downloadSection {
+    margin-top: 20px;
+  }
+
   .status.connecting {
     background-color: #fff3cd;
     border-color: #ffc107;
@@ -277,6 +282,15 @@
         </svg>
       </button>
       <button id="uninstallBtn" class="btn btn-danger" disabled>Uninstall</button>
+    </div>
+    
+
+  <div id="downloadSection" class="card" style="display:none;">
+    <h2>Downloading APK</h2>
+    <div class="progress-container">
+      <div class="progress-bar" id="downloadProgressBar"></div>
+      </div>
+      <p id="downloadStatus" class="status-text">Preparing download...</p>
     </div>
   </div>
 

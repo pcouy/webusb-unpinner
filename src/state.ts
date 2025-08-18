@@ -9,6 +9,8 @@ export interface DeviceState {
   isConnected: boolean;
   isAuthenticating: boolean;
   error: string | null;
+  isDownloading: boolean;
+  downloadProgress: number;
 }
 
 let deviceState: DeviceState  = {
@@ -17,7 +19,9 @@ let deviceState: DeviceState  = {
   credentials: null,
   isConnected: false,
   isAuthenticating: false,
-  error: null
+  error: null,
+  isDownloading: false,
+  downloadProgress: 0
 };
 
 export const getDeviceState = () => ({ ...deviceState });

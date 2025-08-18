@@ -184,15 +184,59 @@
     width: 40px;
     padding: 10px;
   }
+
+  .status.connecting {
+    background-color: #fff3cd;
+    border-color: #ffc107;
+    color: #856404;
+  }
+
+  .status.authenticating {
+    background-color: #e2e3e5;
+    border-color: #d3d6d8;
+    color: #383d41;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+  }
+
+  .connection-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .status-connected { background-color: #28a745; }
+  .status-connecting { background-color: #ffc107; }
+  .status-error { background-color: #dc3545; }
+  .status-authenticating { background-color: #6c757d; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>ADB Device File Uploader</h1>
 
-    <div id="status" class="disabled">Connect Android device via USB</div>
+  <div id="status" class="status disabled">
+    <div>No ADB device connected</div>
+    <div class="connection-status">
+      <span class="status-indicator status-error"></span>
+      <span id="statusDetail">Disconnected</span>
+    </div>
+  </div>
 
-    <div class="controls">
+  <div class="controls">
       <button id="connectBtn" class="btn">Connect Device</button>
     </div>
   </div>

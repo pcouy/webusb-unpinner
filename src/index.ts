@@ -1,8 +1,9 @@
 import { AdbDaemonWebUsbDevice, AdbDaemonWebUsbDeviceObserver, AdbDaemonWebUsbDeviceManager } from "@yume-chan/adb-daemon-webusb";
 import { Adb, AdbDaemonDevice, AdbSync, AdbDaemonTransport } from "@yume-chan/adb";
 import { ReadableStream, TextDecoderStream, WritableStream } from "@yume-chan/stream-extra";
-import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 import { PackageManager } from "@yume-chan/android-bin";
+
+import { getDeviceState, setDeviceState, connectToDevice, disconnectDevice, initializeCredentials } from "./state";
 
 const statusDiv = document.getElementById('status')!;
 const connectBtn = document.getElementById('connectBtn') as HTMLButtonElement;
@@ -27,21 +28,34 @@ if (!navigator.usb) {
 
 // State management
 let observer: AdbDaemonWebUsbDeviceObserver | null = null;
-let currentDevice: AdbDaemonWebUsbDevice | null = null;
-let adbClient: Adb | null = null;
 let selectedFiles: File[] = [];
-// Needed by adbClient
-const CredentialStore = new AdbWebCredentialStore();
 const UPLOAD_PATH = '/sdcard/Downloads/web-uploads/';
 
-// Update UI based on connection state
-function updateStatus(devices: readonly AdbDaemonDevice[] = []) {
-  if (devices.length > 0) {
-    statusDiv.textContent = 'ADB enabled - Device connected';
-    statusDiv.className = 'status enabled';
+function updateStatus() {
+  const state = getDeviceState();
+
+  if (state.device) {
+    if (state.isAuthenticating) {
+      statusDiv.textContent = 'Authentication required. Check your device...';
+      statusDiv.className = 'status authenticating';
+    } else if (state.isConnected) {
+      statusDiv.textContent = 'ADB enabled - Device connected';
+      statusDiv.className = 'status enabled';
+    } else if (state.error) {
+      statusDiv.textContent = state.error;
+      statusDiv.className = 'status error';
+    } else {
+      statusDiv.textContent = 'Device detected - Connecting...';
+      statusDiv.className = 'status connecting';
+    }
+
     uploadSection.style.display = 'block';
     uninstallSection.style.display = 'block';
-    loadInstalledApps(); // Load apps when device is connected
+
+    // Load apps only when fully connected
+    if (state.isConnected && !state.isAuthenticating) {
+      loadInstalledApps();
+    }
   } else {
     statusDiv.textContent = 'No ADB device connected';
     statusDiv.className = 'status disabled';
@@ -49,6 +63,12 @@ function updateStatus(devices: readonly AdbDaemonDevice[] = []) {
     uninstallSection.style.display = 'none';
     selectedFiles = [];
     renderFileList();
+  }
+
+  // Show error if any
+  if (state.error) {
+    statusText.textContent = state.error;
+    statusText.className = 'status-text error';
   }
 }
 
@@ -59,17 +79,21 @@ async function initializeObserver() {
       filters: [{ vendorId: 0x18d1 }] // Google's vendor ID
     });
 
-    updateStatus(observer.current);
+    const hasDevices = observer.current.length > 0;
+    if(hasDevices) {
+      setDeviceState({ device: observer.current[0] });
+    }
+    updateStatus();
 
     // Listen for device list changes
     observer.onListChange(devices => {
-      updateStatus(devices);
-      if (devices.length > 0) {
-        currentDevice = devices[0];
+      const hasDevices = devices.length > 0;
+      if (hasDevices) {
+        setDeviceState({ device: devices[0]});
       } else {
-        currentDevice = null;
-        adbClient = null;
+        disconnectDevice();
       }
+      updateStatus();
     });
 
     observer.onDeviceAdd(devices => {
@@ -79,40 +103,13 @@ async function initializeObserver() {
     observer.onDeviceRemove(devices => {
       console.log('Device disconnected:', devices);
     });
+
+    // TODO not really needed
+    return observer;
   } catch (error) {
     console.error('Observer initialization failed:', error);
-    statusDiv.textContent = 'Failed to initialize device observer';
-  }
-}
-
-// Connect to device and get ADB client
-async function connectToDevice() {
-  if (!currentDevice) {
-    console.error('No device available to connect');
-    return null;
-  }
-
-  try {
-    if (adbClient) {
-      await adbClient.close();
-    }
-
-    let adbConnection = await currentDevice.connect();
-    let readable = adbConnection.readable;
-    let writable = adbConnection.writable;
-    adbClient = new Adb(
-      await AdbDaemonTransport.authenticate({
-        serial: currentDevice.serial,
-        connection: {readable, writable},
-        credentialStore: CredentialStore,
-      })
-    );
-    console.log('Connected to ADB device');
-    return adbClient;
-  } catch (error) {
-    console.error('Connection error:', error);
-    statusText.textContent = 'Failed to connect to device';
-    statusText.className = 'status-text error';
+    setDeviceState({ error: 'Failed to initialize device observer' });
+    updateStatus();
     return null;
   }
 }
@@ -243,13 +240,15 @@ function formatFileSize(bytes: number): string {
 
 // Upload functionality
 uploadBtn.addEventListener('click', async () => {
-  if (!currentDevice || selectedFiles.length === 0) return;
+  if (selectedFiles.length === 0) return;
+
+  const state = getDeviceState();
+  const client = state.client;
+  if(!client) return;
 
 
   try {
     // Connect to device if not already connected
-    const client = adbClient || await connectToDevice();
-    if (!client) return;
     // Get ADB sync client
     const sync = await client.sync();
 
@@ -403,7 +402,15 @@ async function installSplitApk(client: Adb, sync: AdbSync, apkFiles: File[]) {
  */
 
 async function loadInstalledApps() {
-  if (!adbClient) return;
+  let adbClient: Adb | null = null;
+
+  const state = getDeviceState();
+  if(state.client) {
+    adbClient = state.client;
+  } else {
+    console.log("[+] Load Installed apps called without connected client");
+    return;
+  }
 
   appList.innerHTML = '<option value="" disabled selected>Loading applications...</option>';
   uninstallBtn.disabled = true;
@@ -411,7 +418,7 @@ async function loadInstalledApps() {
 
   try {
     // Directly use pm -3 for third-party apps
-    const shell = await adbClient.subprocess.shellProtocol!.spawn(['pm', 'list', 'packages', '-3']);
+    const shell = await adbClient!.subprocess.shellProtocol!.spawn(['pm', 'list', 'packages', '-3']);
     var output: string = "";
     // Stdout and stderr will generate two Promise, await them together
     await Promise.all([
@@ -468,7 +475,16 @@ async function loadInstalledApps() {
 
 async function uninstallSelectedApp() {
   const packageName = appList.value;
-  if (!packageName || !adbClient) return;
+  if (!packageName) return;
+  let adbClient: Adb | null = null;
+
+  const state = getDeviceState();
+  if(state.client) {
+    adbClient = state.client;
+  } else {
+    console.log("[+] Load Installed apps called without connected client");
+    return;
+  }
 
   uninstallBtn.disabled = true;
   refreshBtn.disabled = true;
@@ -535,6 +551,8 @@ connectBtn.addEventListener('click', async () => {
     await navigator.usb.requestDevice({
       filters: [{ vendorId: 0x18d1 }] // Google's vendor ID
     });
+    // Simple solution: only connect to device calls this function
+    connectToDevice();
   } catch (error) {
     console.log('Device selection canceled');
   }
@@ -546,10 +564,15 @@ window.addEventListener('beforeunload', async () => {
     observer.stop(); // Release resources
   }
 
-  if (adbClient) {
-    await adbClient.close();
+  const state = getDeviceState();
+  if(state.device) {
+    disconnectDevice();
   }
 });
 
+// Initialize device credentials
+initializeCredentials();
 // Initialize device observer
 initializeObserver();
+// Periodically update UI to reflect state changes
+setInterval(updateStatus, 10000);

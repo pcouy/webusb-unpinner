@@ -13,7 +13,8 @@ export interface CertInstance {
 // At the moment export only the interface with the hgardcoded certificate
 // details, in the future a w3idget to configure the certificate details
 // would be implemented.
-export async function signApk(zipFile: File): Promise<string> {
+export async function signApk(
+  data: Uint8Array, baseFilename: string): Promise<Uint8Array> {
 
   const defaultCert: CertInstance = {
     password: "password",
@@ -25,13 +26,19 @@ export async function signApk(zipFile: File): Promise<string> {
     countryCode: "AU"
   };
 
-  const b64outZip = await signPackageCert(zipFile, defaultCert);
-  return b64outZip;
+  var zipFile = new File([data as BlobPart], baseFilename + ".apk");
+  var b64outZip = await signPackageCert(zipFile, defaultCert);
+  // strip data:application/zip;base64,
+  b64outZip = b64outZip.split(",")[1];
+  const apkFileType = 'application/vnd.android.package-archive';
+  const resignedApk = Uint8Array.from(atob(b64outZip), c => c.charCodeAt(0));
+  return resignedApk;
 }
 
 async function signPackageCert(zipFile: File, cert: CertInstance): Promise<string> {
   var b64outZip: string = "";
   const packageSigner = new ApkSignerV2(cert.password, cert.alias);
+  // TODO store by default an hardcoded keystore
   const base64Der = await packageSigner.generateKey({
     commonName: cert.commonName,
     organizationName: cert.organizationName,

@@ -27,7 +27,6 @@ module.exports = {
   },
   devServer: {
     static: path.join(__dirname, 'dist'),
-    // https: true, // Required for WebUSB
     port: 9000,
     hot: true,
   },

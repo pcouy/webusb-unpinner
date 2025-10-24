@@ -9,6 +9,7 @@ import { getDeviceState, setDeviceState, connectToDevice, disconnectDevice, init
 import { signApk } from "./signer";
 import {adbRun, downloadFile, getAPKPaths, reinstallApk} from "./adb-utils";
 import { initFridaGadget } from "./jdwp";
+import { enableDebuggableFlag } from "./apk-patcher";
 
 const statusDiv = document.getElementById('status')!;
 const connectBtn = document.getElementById('connectBtn') as HTMLButtonElement;
@@ -265,12 +266,12 @@ uploadBtn.addEventListener('click', async () => {
   const state = getDeviceState();
   const client = state.client;
   if(!client) return;
+  const sync = await client.sync();
 
 
   try {
     // Connect to device if not already connected
     // Get ADB sync client
-    const sync = await client.sync();
 
     // Check if we are installing APKs
     const isApkInstall = selectedFiles.every(file => file.name.toLowerCase().endsWith('.apk'))
@@ -301,6 +302,7 @@ uploadBtn.addEventListener('click', async () => {
     statusText.className = 'status-text error';
   } finally {
     progressBar.style.width = '0%';
+    sync.dispose()
   }
 });
 
@@ -564,7 +566,7 @@ async function uninstallSelectedApp() {
   try {
     const apkFiles = await backupApk(adbClient, packageName);
 
-    // Now I can uninstall the app
+    // Now I can uninstall the app TODO move to the manager
     const adbCommand = ['pm', 'uninstall', packageName];
     const {output, exitCode} = await adbRun(adbClient!, adbCommand);
 
@@ -575,8 +577,29 @@ async function uninstallSelectedApp() {
     statusText.className = 'status-text success';
 
     // TODO patch Apk
+    const zip = new JSZip();
+    const loaded = await zip.loadAsync(apkFiles[0].data);
+    if (!loaded.files['AndroidManifest.xml']) {
+      throw new Error('AndroidManifest.xml not found in APK');
+    }
+    console.log('📋 Extracting AndroidManifest.xml...');
+    const manifestBuffer = await loaded.files['AndroidManifest.xml'].async('arraybuffer');
+
+    console.log('🔧 Modifying manifest to enable debuggable flag...');
+    const modifiedManifest = enableDebuggableFlag(manifestBuffer);
+
+    console.log('📝 Updating APK with modified manifest...');
+    loaded.file('AndroidManifest.xml', modifiedManifest);
+
+    console.log('💾 Generating modified APK...');
+    const patchedApk = await loaded.generateAsync({
+      type: 'arraybuffer',
+      compression: 'DEFLATE'
+    });
+    const patchedApkArray = new Uint8Array(patchedApk);
+
     // TODO support SPLIT APKS!
-    const resignedApk = await signApk(apkFiles[0].data, packageName + ".apk");
+    const resignedApk = await signApk(patchedApkArray, packageName + ".apk");
     statusText.textContent = `Resigned: ${packageName}`;
     statusText.className = 'status-text success';
 

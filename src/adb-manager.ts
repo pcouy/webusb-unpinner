@@ -60,7 +60,7 @@ export class AdbManager {
    */
   async pushFromUrl(
     url: string,
-    options: PushOptions = {}
+    options: PushOptions
   ): Promise<PushResult> {
     try {
       const response = await fetch(url);
@@ -139,11 +139,11 @@ export class AdbManager {
    */
   async pushFromFile(
     file: File,
-    options: PushOptions = {}
+    options: PushOptions
   ): Promise<PushResult> {
     try {
       const stream = this.createProgressStream(
-        file.stream() as any,
+        file.stream() as ReadableStream<Uint8Array>,
         file.size,
         options.onProgress
       );
@@ -162,7 +162,7 @@ export class AdbManager {
    */
   async pushFromBlob(
     blob: Blob,
-    options: PushOptions = {}
+    options: PushOptions
   ): Promise<PushResult> {
     try {
       const stream = this.createProgressStream(
@@ -224,7 +224,7 @@ export class AdbManager {
    */
   async pushFromBase64(
     base64Data: string,
-    options: PushOptions = {}
+    options: PushOptions
   ): Promise<PushResult> {
     try {
       // Decode base64 to binary string
@@ -348,31 +348,32 @@ export class AdbManager {
   ): Promise<void> {
     try {
 
-        // This might seem naive, but apkData is already in memory
-        const stream = new ReadableStream<Uint8Array>({
-            start(controller) {
-                controller.enqueue(apkData);
-                controller.close();
-            },
-        });
-        // Push APK data to device
-        await this.pushStream(stream, remotePath);
-        console.log("Pushed APK to device");
+      // This might seem naive, but apkData is already in memory
+      // TODO maybe switch to yume adb PM interface?
+      const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+              controller.enqueue(apkData);
+              controller.close();
+          },
+      });
+      // Push APK data to device
+      await this.pushStream(stream, remotePath);
+      console.log("Pushed APK to device");
 
-        // Install
-        const result = await this.adbRun(`pm install -r ${remotePath}`);
-        if (result.exitCode === 0) {
-          console.log('APK pushed successfully');
-        } else {
-          throw new Error(`Installation failed: ${result.output}`);
-        }
+      // Install
+      const result = await this.adbRun(`pm install -r ${remotePath}`);
+      if (result.exitCode === 0) {
+        console.log('APK pushed successfully');
+      } else {
+        throw new Error(`Installation failed: ${result.output}`);
+      }
 
-        // Cleanup
-        await this.adbRun(`rm ${remotePath}`);
+      // Cleanup
+      await this.adbRun(`rm ${remotePath}`);
 
-        return;
+      return;
     } catch (error) {
-        throw new Error(`Failed to install APK: ${error}`);
+      throw new Error(`Failed to install APK: ${error}`);
     }
   }
 
@@ -436,15 +437,19 @@ export class AdbManager {
 
   async installSplitApk(apkFiles: File[]) {
 
-    const APK_UPLOAD_PATH = '/data/local/tmp/split-apks/';
+    const APK_UPLOAD_PATH = `${config.devicePath}splitapks/`;
 
     // Create sync
     const sync = await this.adb.sync();
     try {
       // Create directory
-      const mkdir = await this.adbRun(["mkdir", APK_UPLOAD_PATH]);
-      if (mkdir.exitCode !== 0) {
-        throw new Error(`Failed to create directory ${APK_UPLOAD_PATH}`);
+      const apkFolderstatus = await this.adbRun(["ls", APK_UPLOAD_PATH]);
+      if (apkFolderstatus.exitCode !== 0) {
+        const mkdir = await this.adbRun(["mkdir", APK_UPLOAD_PATH]);
+        console.log("installSplit mkdir output: ", mkdir);
+        if (mkdir.exitCode !== 0) {
+          throw new Error(`Failed to create directory ${APK_UPLOAD_PATH}`);
+        }
       }
 
 
@@ -453,7 +458,7 @@ export class AdbManager {
       let totalSize = 0;
       for (const file of apkFiles) {
         const remotePath = `${APK_UPLOAD_PATH}${file.name}`;
-        await this.pushFromFile(file);
+        await this.pushFromFile(file, {devicePath: remotePath});
         remotePaths.push({
           name: file.name,
           path: remotePath,

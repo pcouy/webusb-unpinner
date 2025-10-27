@@ -7,7 +7,7 @@ import { saveAs } from 'file-saver';
 
 import { getDeviceState, setDeviceState, connectToDevice, disconnectDevice, initializeCredentials, configureDevice } from "./state";
 import { signApk } from "./signer";
-import {adbRun, downloadFile, getAPKPaths, reinstallApk} from "./adb-utils";
+import { AdbManager } from "./adb-manager";
 import { initFridaGadget } from "./jdwp";
 import { enableDebuggableFlag } from "./apk-patcher";
 
@@ -38,7 +38,6 @@ if (!navigator.usb) {
 // State management
 let observer: AdbDaemonWebUsbDeviceObserver | null = null;
 let selectedFiles: File[] = [];
-const FILE_UPLOAD_PATH = '/sdcard/Downloads/web-uploads/';
 const APK_UPLOAD_PATH = '/data/local/tmp/';
 
 interface ApkDescriptor {
@@ -262,15 +261,13 @@ function formatFileSize(bytes: number): string {
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
-// Upload functionality
+// Install functionality
 uploadBtn.addEventListener('click', async () => {
   if (selectedFiles.length === 0) return;
 
   const state = getDeviceState();
-  const client = state.client;
-  if(!client) return;
-  const sync = await client.sync();
-
+  if(!state.client) return;
+  const adbManager = new AdbManager(state.client);
 
   try {
     // Connect to device if not already connected
@@ -280,224 +277,33 @@ uploadBtn.addEventListener('click', async () => {
     const isApkInstall = selectedFiles.every(file => file.name.toLowerCase().endsWith('.apk'))
 
     if (isApkInstall) {
-      if (selectedFiles.length === 1) {
-        await installSingleApk(client, selectedFiles[0]);
-      } else {
-        await installSplitApk(client, sync, selectedFiles);
-      }
+        statusText.textContent = `Installing: ${selectedFiles.length} packets...`;
+        statusText.className = 'status-text';
+        await adbManager.installSplitApk(selectedFiles);
 
       statusText.textContent = 'App installed successfully!';
       statusText.className = 'status-text success';
     } else {
-    // Upload all files
-      for (const file of selectedFiles) {
-        await uploadFile(sync, file);
-      }
-
-      statusText.textContent = 'All files uploaded successfully!';
-      statusText.className = 'status-text success';
-      resetFileInput();
+      statusText.textContent = "File format not recognized, only APKs are supported!"
+      statusText.className = 'status-text error';
     }
+    resetFileInput();
 
   } catch (error) {
-    console.error('Upload error:', error);
-    statusText.textContent = `Upload failed: ${error instanceof Error ? error.message : String(error)}`;
+    console.error('Installation error:', error);
+    statusText.textContent = `Installation failed: ${error instanceof Error ? error.message : String(error)}`;
     statusText.className = 'status-text error';
   } finally {
     progressBar.style.width = '0%';
-    sync.dispose()
   }
 });
 
-async function uploadFile(sync: AdbSync, file: File) {
-  if (!file || file.size === 0) {
-    console.error('[DEBUG] Invalid file reference', file);
-    throw new Error('Invalid file reference');
-  }
-
-  console.log(`[DEBUG] Starting upload for: ${file.name} (${file.size} bytes)`);
-
-  statusText.textContent = `Uploading: ${file.name}...`;
-  statusText.className = 'status-text';
-  progressBar.style.width = '0%';
-
-  const filePath = `${FILE_UPLOAD_PATH}${file.name}`;
-  const fileSize = file.size;
-  let uploaded = 0;
-
-  try {
-    // Create readable stream from the file
-
-    const fileStream = file.stream();
-    const progressTrackingStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const reader = fileStream.getReader();
-        while(true) {
-          const {done, value} = await reader.read();
-          if(done) {
-            controller.close();
-            break;
-          }
-
-          // Track uploaded bytes
-          uploaded += value.byteLength;
-          const progress = Math.round((uploaded / fileSize) * 100);
-          progressBar.style.width = `${progress}%`;
-
-          // Pass through the data
-          controller.enqueue(value);
-        }
-      }
-    });
-
-    await sync.write({
-      filename: filePath,
-      file: progressTrackingStream,
-    });
-
-    console.log(`File uploaded: ${file.name}`);
-
-    statusText.textContent = `Uploaded: ${file.name}`;
-    statusText.className = 'status-text success';
-  } catch (error) {
-    console.error(`Error uploading ${file.name}:`, error);
-    statusText.textContent = `Error uploading ${file.name}: ${
-      error instanceof Error ? error.message : String(error)
-    }`;
-    statusText.className = 'status-text error';
-    throw error;
-  }
-}
-
-async function installSingleApk(client: Adb, apkFile: File) {
-  statusText.textContent = `Installing: ${apkFile.name}...`;
-  statusText.className = 'status-text';
-  let uploaded = 0;
-
-  try {
-    const stream = apkFile.stream();
-    const apkSize = apkFile.size;
-    const pm = new PackageManager(client);
-
-    // Create readable stream from APK
-    const progressTrackingStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const reader = stream.getReader();
-        while(true) {
-          const {done, value} = await reader.read();
-          if(done) {
-            controller.close();
-            break;
-          }
-
-          // Track uploaded bytes
-          uploaded += value.byteLength;
-          const progress = Math.round((uploaded / apkSize) * 100);
-          progressBar.style.width = `${progress}%`;
-
-          // Pass through the data
-          controller.enqueue(value);
-        }
-
-      }
-    });
-    // Feed into pm installer
-    await pm.installStream(apkSize, progressTrackingStream);
-  } catch(error) {
-    console.error('Installation error:', error);
-    statusText.textContent = `Installation failed: ${
-      error instanceof Error ? error.message : String(error)
-    }`;
-    statusText.className = 'status-text error';
-    throw error;
-  }
-}
-
-async function installSplitApk(client: Adb, sync: AdbSync, apkFiles: File[]) {
-  statusText.textContent = 'Starting split APK installation...';
-  statusText.className = 'status-text';
-
-  try {
-    // Upload files and collect remote paths
-    const remotePaths: ApkDescriptor[] = [];
-    let totalSize = 0;
-    for (const file of apkFiles) {
-      const remotePath = `${APK_UPLOAD_PATH}${file.name}`;
-      await uploadFile(sync, file);
-      remotePaths.push({
-        name: file.name,
-        path: remotePath,
-        size: file.size,
-      });
-      totalSize += file.size;
-    }
-
-
-    // Create session and write each APK
-    const sessionId = await createInstallSession(client, totalSize);
-    for (const [idx, apk] of remotePaths.entries()) {
-      await writeToInstallSession(client, apk, sessionId, idx);
-    }
-
-    // Commit the installation
-    await commitInstallSession(client, sessionId);
-
-    statusText.textContent = 'Split APK installed successfully!';
-    statusText.className = 'status-text success';
-  } catch (error) {
-    console.error('Split installation error: ', error);
-    statusText.textContent = `Split installation failed: ${
-      error instanceof Error ? error.message : String(error)
-    }`;
-    statusText.className = 'status-text error';
-    throw error;
-  }
-}
-
-async function createInstallSession(client: Adb, totalSize: number): Promise<number> {
-  const adbCommand = ["pm", "install-create", "-S", totalSize.toString()];
-  const {output, exitCode} = await adbRun(client!, adbCommand);
-
-  const match = output.match(/Success: created install session \[(\d+)\]/);
-  if (!match) {
-    throw new Error('Failed to parse session ID from output: ' + output);
-  }
-
-  return parseInt(match[1], 10);
-
-}
-
-async function writeToInstallSession( client: Adb, apk: ApkDescriptor, sessionId: number, idx: number)
-{
-  const adbCommand = ["pm", "install-write", "-S", apk.size.toString(), sessionId.toString(),
-    idx.toString(), apk.path];
-  const {output, exitCode} = await adbRun(client, adbCommand);
-
-  if (exitCode !== 0 ) {
-    throw new Error(`Failed to write ${apk.name} to session (code ${exitCode}): ${output}`);
-  }
-}
-
-async function commitInstallSession(client: Adb, sessionId: number) {
-  const adbCommand = ['pm', 'install-commit', sessionId.toString()];
-  const {output, exitCode} = await adbRun(client, adbCommand);
-
-  if (exitCode !== 0) {
-    throw new Error(`Failed to commit session (code ${exitCode}): ${output}`);
-  }
-}
-
-/** =============================
- *        REINSTALL APK
- *  =============================
- */
-
 async function loadInstalledApps() {
-  let adbClient: Adb | null = null;
+  let adbManager: AdbManager | null = null;
 
   const state = getDeviceState();
   if(state.client) {
-    adbClient = state.client;
+    adbManager = new AdbManager(state.client);
   } else {
     console.log("[+] Load Installed apps called without connected client");
     return;
@@ -510,7 +316,7 @@ async function loadInstalledApps() {
   try {
     // Directly use pm -3 for third-party apps
     const adbCommand = ['pm', 'list', 'packages', '-3'];
-    const {output, exitCode}  = await adbRun(adbClient!, adbCommand);
+    const {output, exitCode}  = await adbManager.adbRun(adbCommand);
 
     if (exitCode !== 0) {
       throw new Error('Failed to list applications');
@@ -547,11 +353,11 @@ async function loadInstalledApps() {
 async function uninstallSelectedApp() {
   const packageName = appList.value;
   if (!packageName) return;
-  let adbClient: Adb | null = null;
+  let adbManager: AdbManager | null = null;
 
   const state = getDeviceState();
   if(state.client) {
-    adbClient = state.client;
+    adbManager = new AdbManager(state.client);
   } else {
     console.log("[+] Load Installed apps called without connected client");
     return;
@@ -567,11 +373,11 @@ async function uninstallSelectedApp() {
   downloadSection.textContent = `Preparing to download ${packageName}...`;
 
   try {
-    const apkFiles = await backupApk(adbClient, packageName);
+    const apkFiles = await backupApk(adbManager, packageName);
 
-    // Now I can uninstall the app TODO move to the manager
+    // Now I can uninstall the app
     const adbCommand = ['pm', 'uninstall', packageName];
-    const {output, exitCode} = await adbRun(adbClient!, adbCommand);
+    const {output, exitCode} = await adbManager.adbRun(adbCommand);
 
     if (exitCode !== 0) {
       throw new Error(`Uninstall failed: ${output}`);
@@ -584,20 +390,17 @@ async function uninstallSelectedApp() {
     if (!loaded.files['AndroidManifest.xml']) {
       throw new Error('AndroidManifest.xml not found in APK');
     }
-    console.log('📋 Extracting AndroidManifest.xml...');
     const manifestBuffer = await loaded.files['AndroidManifest.xml'].async('arraybuffer');
 
-    console.log('🔧 Modifying manifest to enable debuggable flag...');
     const modifiedManifest = enableDebuggableFlag(manifestBuffer);
 
-    console.log('📝 Updating APK with modified manifest...');
     loaded.file('AndroidManifest.xml', modifiedManifest);
 
-    console.log('💾 Generating modified APK...');
     const patchedApk = await loaded.generateAsync({
       type: 'arraybuffer',
       compression: 'DEFLATE'
     });
+    console.log(`💾 Patched APK... `);
     const patchedApkArray = new Uint8Array(patchedApk);
 
     // TODO support SPLIT APKS!
@@ -606,7 +409,8 @@ async function uninstallSelectedApp() {
     statusText.className = 'status-text success';
 
     // Reinstall resigned APK
-    await reinstallApk(adbClient!, resignedApk);
+    const remotePath = `${APK_UPLOAD_PATH}/app.apk`;
+    await  adbManager.installApk(resignedApk, remotePath);
     statusText.textContent = `Reinstalled: ${packageName}`;
     statusText.className = 'status-text success';
 
@@ -635,23 +439,21 @@ async function uninstallSelectedApp() {
 }
 
 // APK backup function
-async function backupApk(client: Adb, packageName: string): Promise<ApkFile[]> {
+async function backupApk(adbManager: AdbManager, packageName: string): Promise<ApkFile[]> {
   try {
     setDeviceState({isDownloading: true, downloadProgress: 0});
 
     // Get APK paths
-    const apkPaths = await getAPKPaths(client, packageName);
+    const apkPaths = await adbManager.getAPKPaths(packageName);
 
     // Download APKs
-    const state = getDeviceState();
-    const sync = await state.client?.sync();
     const apkFiles: ApkFile[] = [];
 
     for (let i = 0; i < apkPaths.length; i++) {
       const path = apkPaths[i];
-      downloadStatus.textContent = `Downloading APK (${i+1}/${apkPaths.length})...`;
+      downloadStatus.textContent = `Fetching APK (${i+1}/${apkPaths.length})...`;
 
-      const data = await downloadFile(sync!, path, (progress) => {
+      const data = await adbManager.pullFromDevice(path, (progress) => {
         const totalProgress = Math.round(((i + progress) / apkPaths.length) * 100);
         downloadProgressBar.style.width = `${totalProgress}%`;
         setDeviceState({ downloadProgress: totalProgress });
@@ -662,36 +464,10 @@ async function backupApk(client: Adb, packageName: string): Promise<ApkFile[]> {
     // Create filename with version
     // const versionStr = packageInfo.versionName.replace(/[^a-z0-9]/gi, '_');
     // const baseFilename = `${packageName}_${versionStr}`;
-    downloadStatus.textContent = `Downloaded ${apkFiles.length} APK file(s)`;
+    downloadStatus.textContent = `Fetched ${apkFiles.length} APK file(s)`;
     return apkFiles;
 
 
-    // if(apkFiles.length === 1) {
-    //   // TODO patch APK Manifest and set app debuggable
-    //   const resignedApk = await signApk(apkFiles[0].data, baseFilename + ".apk");
-    //   // TODO push frida gadget, config and scripts to /data/local/tmp
-    //   // Now I can assume that all the necessary files are present
-    //   console.log(`Going to reinstall and APK of ${resignedApk.length} bytes`);
-    //   downloadStatus.textContent = `Patched and instrumented ${packageName}`;
-
-    // } else {
-    //   // Multiple APKs installation
-    //   const zip = new JSZip();
-
-    //   apkFiles.forEach((file, index) => {
-    //     const filename = file.path.split('/').pop() || `base-${index}.apk`;
-    //     zip.file(filename, file.data);
-    //   });
-
-    //   // TODO Add package info
-    //   // zip.file('package-info.txt',
-    //   //   `Package: ${packageName}\nVersion: ${packageInfo.versionName}\nVersion Code: ${packageInfo.versionCode}`);
-
-    //   const content = await zip.generateAsync({type: 'blob'});
-    //   saveAs(content, `${baseFilename}.zip`);
-
-    //   downloadStatus.textContent = `Downloaded ${apkFiles.length} APK file(s)`;
-    // }
   } catch (error) {
     throw error;
   } finally {

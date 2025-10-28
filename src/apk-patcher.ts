@@ -61,7 +61,7 @@ class StringPoolChunk {
     const stringCount = this.view.getUint32(8, true);
     const stringStart = this.view.getUint32(20, true);
     const flags = this.view.getUint32(16, true);
-    console.log(`String pool before: size=${this.get_size()}, count=${stringCount}`);
+    // console.log(`String pool before: size=${this.get_size()}, count=${stringCount}`);
 
     const isUtf16 = (flags & 0x100) === 0;
 
@@ -172,8 +172,8 @@ class StringPoolChunk {
       newView.setUint32(24, newStylesOffset, true);
     }
 
-    console.log(`Appending "${str}" (${isUtf16 ? 'UTF-16' : 'UTF-8'}), returning string count: ${stringCount}`);
-    console.log(`String pool after: size=${newBuffer.length}, new entry offset=${newOffsetValue}`);
+    // console.log(`Appending "${str}" (${isUtf16 ? 'UTF-16' : 'UTF-8'}), returning string count: ${stringCount}`);
+    // console.log(`String pool after: size=${newBuffer.length}, new entry offset=${newOffsetValue}`);
 
     this.chunk_data = newBuffer;
     this.view = new DataView(this.chunk_data.buffer);
@@ -232,8 +232,8 @@ class ResourceMapChunk {
     // For debuggable, we use the standard Android attribute resource ID
     // const DEBUGGABLE_RESOURCE_ID = 0x010100d9; // android:debuggable
     const DEBUGGABLE_RESOURCE_ID = 0x101000F; // android:debuggable
-    console.log(`Resource map before: size=${this.get_size()}`);
-    console.log(`Adding resource entry at index=${stringIndex}, resourceId=0x${DEBUGGABLE_RESOURCE_ID.toString(16)}`);
+    // console.log(`Resource map before: size=${this.get_size()}`);
+    // console.log(`Adding resource entry at index=${stringIndex}, resourceId=0x${DEBUGGABLE_RESOURCE_ID.toString(16)}`);
 
     const oldChunkSize = this.view.getUint32(4, true);
     const headerSize = this.view.getUint16(2, true);
@@ -263,8 +263,8 @@ class ResourceMapChunk {
 
     this.chunk_data = newBuffer;
     this.view = new DataView(this.chunk_data.buffer);
-    console.log(`Added resource ID 0x${DEBUGGABLE_RESOURCE_ID.toString(16)} at position ${stringIndex}`);
-    console.log(`Resource map after: size=${newBuffer.length}`);
+    // console.log(`Added resource ID 0x${DEBUGGABLE_RESOURCE_ID.toString(16)} at position ${stringIndex}`);
+    // console.log(`Resource map after: size=${newBuffer.length}`);
   }
 
   get_chunk_data(): Uint8Array {
@@ -332,7 +332,6 @@ class StartElementChunk {
     const attributeBuffer = new ArrayBuffer(ATTRIBUTE_SIZE);
     const attrView = new DataView(attributeBuffer);
 
-    // TODO check if the hardcoding is correct or not.
     attrView.setUint32(0, this.namespace, true);    // namespace
     attrView.setUint32(4, debuggableStringIndex, true);      // name
     attrView.setUint32(8, 0xFFFFFFFF, true);                 // rawValue
@@ -342,7 +341,7 @@ class StartElementChunk {
     attrView.setInt32(16, -1, true);                         // data (TRUE)
 
     const newAttributeBytes = new Uint8Array(attributeBuffer);
-    console.log("[insert_debug] New attribute being set: ", Array.from(newAttributeBytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
+    // console.log("[insert_debug] New attribute being set: ", Array.from(newAttributeBytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
 
     // Insert position (end of current attributes)
     // const insertPos = attributeStart + attributeCount * ATTRIBUTE_SIZE;
@@ -361,10 +360,10 @@ class StartElementChunk {
       }
 
       insertPos += ATTRIBUTE_SIZE;
-      console.log(`[insert_debug] Iteration ${i}, attrOffset: ${attrOffset}, nameStringIndex: ${nameStringIndex}, existingResourceId: ${existingResourceId}, insertPos: ${insertPos}`);
+      // console.log(`[insert_debug] Iteration ${i}, attrOffset: ${attrOffset}, nameStringIndex: ${nameStringIndex}, existingResourceId: ${existingResourceId}, insertPos: ${insertPos}`);
     }
-    console.log(`Inserting attribute at position ${insertPos}`);
-    console.log(`Attribute nameStringIndex=${debuggableStringIndex}, namespace=${this.namespace}`);
+    // console.log(`Inserting attribute at position ${insertPos}`);
+    // console.log(`Attribute nameStringIndex=${debuggableStringIndex}, namespace=${this.namespace}`);
 
     // Create new buffer
     const newBuffer = new Uint8Array(this.chunk_data.length + ATTRIBUTE_SIZE);
@@ -468,18 +467,18 @@ class BinaryXmlParser {
     }
 
     // Log key strings
-    console.log(`\nðŸ“š String pool loaded: ${this.strings.length} strings`);
-    console.log('Looking for key strings:');
-    const keysToFind = ['application', 'debuggable', 'android', 'http://schemas.android.com/apk/res/android'];
-    for (const key of keysToFind) {
-      const index = this.strings.indexOf(key);
-      if (index >= 0) {
-        console.log(`  âœ… "${key}" at index ${index}`);
-      } else {
-        console.log(`  âŒ "${key}" NOT FOUND`);
-      }
-    }
-    console.log('');
+    // console.log(`\n String pool loaded: ${this.strings.length} strings`);
+    // console.log('Looking for key strings:');
+    // const keysToFind = ['application', 'debuggable', 'android', 'http://schemas.android.com/apk/res/android'];
+    // for (const key of keysToFind) {
+    //   const index = this.strings.indexOf(key);
+    //   if (index >= 0) {
+    //     console.log(`"${key}" at index ${index}`);
+    //   } else {
+    //     console.log(`"${key}" NOT FOUND`);
+    //   }
+    // }
+    // console.log('');
   }
 
   private readUtf16String(offset: number): string {
@@ -510,25 +509,25 @@ class BinaryXmlParser {
   private findApplicationTagOffset(): number | null {
     let offset = this.xmlStart;
     const fileEnd = this.buffer.length;
-    console.log(`Starting to scan at offset ${offset}, file length ${fileEnd}`);
+    // console.log(`Starting to scan at offset ${offset}, file length ${fileEnd}`);
 
     while (offset < fileEnd - 8) {
       const type = this.view.getUint16(offset, true);
       const size = this.view.getUint32(offset + 4, true);
 
     if (size === 0 || size < 8) {
-        console.log(`  [${offset.toString().padStart(6)}] Invalid size: ${size}, stopping`);
+        // console.log(`  [${offset.toString().padStart(6)}] Invalid size: ${size}, stopping`);
         break;
       }
       if (offset + size > fileEnd) {
-        console.log(`  [${offset.toString().padStart(6)}] Chunk extends beyond file, stopping`);
+        // console.log(`  [${offset.toString().padStart(6)}] Chunk extends beyond file, stopping`);
         break;
       }
 
       if (type === 0x0102) { // START_ELEMENT
-        console.log(`Found START_ELEMENT at offset: ${offset}`);
+        // console.log(`Found START_ELEMENT at offset: ${offset}`);
         const nameSi = this.view.getUint32(offset + 20, true);
-        console.log(`Example string found: ${this.strings[nameSi]}`);
+        // console.log(`Example string found: ${this.strings[nameSi]}`);
         if (nameSi < this.strings.length && this.strings[nameSi] === 'application') {
           return offset;
         }
@@ -564,7 +563,7 @@ class BinaryXmlParser {
         const modifiedData = modifiedChunks.get(offset)!;
         const newSize = modifiedData.length;
         totalSize += newSize;
-        console.log(`  Modified chunk at ${offset}: ${size} â†’ ${newSize} (+${newSize - size})`);
+        // console.log(`  Modified chunk at ${offset}: ${size} â†’ ${newSize} (+${newSize - size})`);
       } else {
         // Unmodified chunk, use original size
         totalSize += size;
@@ -722,7 +721,7 @@ export function getPackageName(manifestBuffer: ArrayBuffer): string | null
   try {
     const parser = new BinaryXmlParser(manifestBuffer);
     const packageName = parser.getPackageNameFromManifest();
-    console.log(`Got package name: ${packageName}`);
+    // console.log(`Got package name: ${packageName}`);
     return packageName;
 
   } catch (error) {

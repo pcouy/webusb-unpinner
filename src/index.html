@@ -227,6 +227,51 @@
   .status-connecting { background-color: #ffc107; }
   .status-error { background-color: #dc3545; }
   .status-authenticating { background-color: #6c757d; }
+  .config-form {
+    margin-top: 20px;
+  }
+
+  .form-group {
+    margin-bottom: 20px;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+  }
+
+  .config-input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+  }
+
+  .config-textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-family: monospace;
+    min-height: 120px;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+
+  .config-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+  }
+
+  .config-buttons .btn {
+    flex: 1;
+  }
   </style>
 </head>
 <body>
@@ -243,6 +288,35 @@
 
   <div class="controls">
       <button id="connectBtn" class="btn">Connect Device</button>
+    </div>
+  </div>
+
+  <div class="card" id="configSection">
+    <h2>Proxy Configuration</h2>
+
+    <div class="config-form">
+      <div class="form-group">
+        <label for="proxyAddress">Proxy Address:</label>
+        <input type="text" id="proxyAddress" class="config-input" placeholder="e.g., 192.168.1.100 or proxy.example.com">
+      </div>
+
+      <div class="form-group">
+        <label for="proxyPort">Proxy Port:</label>
+        <input type="number" id="proxyPort" class="config-input" placeholder="e.g., 8080" min="1" max="65535">
+      </div>
+
+      <div class="form-group">
+        <label for="caCertificate">CA Certificate (PEM):</label>
+        <textarea id="caCertificate" class="config-textarea" placeholder="Paste certificate here..."></textarea>
+        <p class="note">Paste your CA certificate base64 encoded in PEM format</p>
+      </div>
+
+      <div class="config-buttons">
+        <button id="saveConfigBtn" class="btn">Save Configuration</button>
+        <button id="resetConfigBtn" class="btn" style="background-color: #6c757d;">Reset to Defaults</button>
+      </div>
+
+      <p id="configStatus" class="status-text"></p>
     </div>
   </div>
 
@@ -283,7 +357,8 @@
       </button>
       <button id="uninstallBtn" class="btn btn-danger" disabled>Uninstall</button>
     </div>
-    
+
+
 
   <div id="downloadSection" class="card" style="display:none;">
     <h2>Launch installed application</h2>

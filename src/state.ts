@@ -2,7 +2,7 @@ import { Adb, AdbDaemonDevice, AdbDaemonConnection, AdbDaemonTransport} from "@y
 import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 // import { Consumable, ReadableWritablePair } from "@yume-chan/stream-extra";
 import { AdbManager } from "./adb-manager";
-import { config } from "./config";
+import { config, generateFridaConfigJs } from "./config";
 
 export interface DeviceState {
   device: AdbDaemonDevice | null;
@@ -13,7 +13,8 @@ export interface DeviceState {
   isAuthenticating: boolean;
   error: string | null;
   isDownloading: boolean;
-  isConfigured: boolean;
+  deviceReady: boolean;
+  isProxyConfigured: boolean;
   downloadProgress: number;
 }
 
@@ -26,7 +27,8 @@ let deviceState: DeviceState  = {
   isAuthenticating: false,
   error: null,
   isDownloading: false,
-  isConfigured: false,
+  deviceReady: false,
+  isProxyConfigured: false,
   downloadProgress: 0
 };
 
@@ -34,7 +36,6 @@ export const getDeviceState = () => ({ ...deviceState });
 
 export const setDeviceState = (updates: Partial<DeviceState>) => {
   deviceState = { ...deviceState, ...updates };
-  // console.log('Device state updated: ', deviceState);
 };
 
 export const connectToDevice = async(): Promise<Adb | null> => {
@@ -123,7 +124,7 @@ export const initializeCredentials = () => {
 
 export const configureDevice = async ()  => {
   const state = getDeviceState();
-  if(state.isConfigured) {
+  if(state.deviceReady) {
     return;
   } else {
     try {
@@ -156,7 +157,40 @@ export const configureDevice = async ()  => {
     } catch (error) {
       console.error("Error during device configuration", error);
     } finally {
-      setDeviceState({ isConfigured: true });
+      setDeviceState({ deviceReady: true });
     }
   }
 };
+
+export const configureProxy = async (): Promise<void> => {
+  const state = getDeviceState();
+  const proxy = config.getProxy();
+
+  if(!proxy.address || !proxy.port || !proxy.caCertificate) {
+    console.log('[configureProxy] Skipping proxy not fully configured');
+    return;
+  }
+
+  if(state.isProxyConfigured) {
+    return;
+  }
+
+  try {
+    const adbManager = new AdbManager(state.client!);
+
+    // Generate config.js content
+    const configJs = generateFridaConfigJs(proxy);
+    const configJsBlob = new Blob([configJs], { type: 'text/javascript' });
+    const configJsFile = new File([configJsBlob], 'config.js');
+    const configPath = config.devicePath + 'scripts/config.js';
+
+    // Push config.js to device
+    await adbManager.pushFromFile(configJsFile, {devicePath: configPath});
+    console.log('[configureProxy] Proxy configuration pushed to device');
+
+    setDeviceState({ isProxyConfigured: true });
+  } catch (error) {
+    console.error("[configureProxy] Error during proxy configuration: ", error);
+    throw error;
+  }
+}

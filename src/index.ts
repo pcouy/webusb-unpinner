@@ -5,12 +5,12 @@ import { PackageManager } from "@yume-chan/android-bin";
 import JSZip from "jszip";
 import { saveAs } from 'file-saver';
 
-import { DeviceState, getDeviceState, setDeviceState, connectToDevice, disconnectDevice, initializeCredentials, configureDevice } from "./state";
+import { DeviceState, getDeviceState, setDeviceState, connectToDevice, disconnectDevice, initializeCredentials, configureDevice, configureProxy } from "./state";
 import { signApk } from "./signer";
 import { AdbManager } from "./adb-manager";
 import { initFridaGadget } from "./jdwp";
 import { enableDebuggableFlag, getPackageName } from "./apk-patcher";
-import { config } from "./config";
+import { config, updateProxyConfig, loadConfigFromStorage } from "./config";
 
 const statusDiv = document.getElementById('status')!;
 const connectBtn = document.getElementById('connectBtn') as HTMLButtonElement;
@@ -28,6 +28,12 @@ const refreshBtn = document.getElementById('refreshBtn') as HTMLButtonElement;
 const downloadSection = document.getElementById('downloadSection') as HTMLDivElement;
 const downloadProgressBar = document.getElementById('downloadProgressBar') as HTMLDivElement;
 const downloadStatus = document.getElementById('downloadStatus') as HTMLParagraphElement;
+const proxyAddressInput = document.getElementById('proxyAddress') as HTMLInputElement;
+const proxyPortInput = document.getElementById('proxyPort') as HTMLInputElement;
+const caCertificateInput = document.getElementById('caCertificate') as HTMLTextAreaElement;
+const saveProxyBtn = document.getElementById('saveProxyBtn') as HTMLButtonElement;
+const clearProxyBtn = document.getElementById('clearProxyBtn') as HTMLButtonElement;
+const proxyStatus = document.getElementById('proxyStatus')!;
 
 // Browser compatibility check
 if (!navigator.usb) {
@@ -52,7 +58,7 @@ interface ApkFile {
 }
 
 async function updateStatus() {
-  const state = getDeviceState();
+  let state = getDeviceState();
 
   if (state.device) {
     if (state.isAuthenticating) {
@@ -69,13 +75,36 @@ async function updateStatus() {
       statusDiv.className = 'status connecting';
     }
 
-    uploadSection.style.display = 'block';
-    uninstallSection.style.display = 'block';
-
     // Configure device an load apps only when fully connected
-    if (state.isConnected && !state.isAuthenticating) {
+    if (state.isConnected && !state.isAuthenticating && !state.deviceReady) {
       statusDiv.textContent = 'Configuring device - Please wait...';
       await configureDevice();
+      // As this call changes the global status, get a fresh copy
+      state = getDeviceState();
+    }
+    if (!state.isProxyConfigured && state.deviceReady) {
+      // Check proxy status
+      const proxy = config.getProxy();
+      if (proxy.address && proxy.port && proxy.caCertificate) {
+        statusDiv.textContent = 'Configuring proxy...';
+        try {
+          await configureProxy();
+          statusDiv.textContent = 'Ready!';
+          statusDiv.className = 'status enabled';
+
+        } catch(error) {
+          console.error("proxy configuration error ", error);
+          statusDiv.textContent = 'Proxy configuration failed';
+          statusDiv.className = 'status error';
+        }
+      } else {
+        statusDiv.textContent = 'Device ready - Configure proxy to continue';
+        statusDiv.className = 'status connecting';
+      }
+    } else {
+      uploadSection.style.display = 'block';
+      uninstallSection.style.display = 'block';
+
       statusDiv.textContent = 'Device configured!';
       await loadInstalledApps();
     }
@@ -538,8 +567,6 @@ async function backupApk(adbManager: AdbManager, packageName: string): Promise<A
     }
 
     // Create filename with version
-    // const versionStr = packageInfo.versionName.replace(/[^a-z0-9]/gi, '_');
-    // const baseFilename = `${packageName}_${versionStr}`;
     downloadStatus.textContent = `Fetched ${apkFiles.length} APK file(s)`;
     return apkFiles;
 
@@ -550,6 +577,83 @@ async function backupApk(adbManager: AdbManager, packageName: string): Promise<A
     setDeviceState({ isDownloading: false, downloadProgress: 0});
   }
 }
+
+/*********************
+ * PROXY CONFIGURATION
+ *********************
+ */
+function loadProxyConfigUI() {
+  const proxy = config.getProxy();
+  proxyAddressInput.value = proxy.address || '';
+  proxyPortInput.value = proxy.port ? proxy.port.toString() : '';
+  caCertificateInput.value = proxy.caCertificate || '';
+}
+
+saveProxyBtn.addEventListener('click', async () => {
+  try {
+    const address = proxyAddressInput.value.trim() || null;
+    const portStr = proxyPortInput.value.trim();
+    const port = portStr ? parseInt(portStr, 10) : null;
+    const caCertificate = caCertificateInput.value.trim() || null;
+
+    if ((address && !port) || (!address && port)) {
+      proxyStatus.textContent = 'Both address and port must be provided';
+      proxyStatus.className = 'status-text error';
+      return;
+    }
+
+    updateProxyConfig(address, port, caCertificate);
+
+    // Reset proxy configuration state
+    setDeviceState({ isProxyConfigured: false });
+
+    // If device is ready, immediately configure proxy
+    const state = getDeviceState();
+    const deviceReady = state.isConnected && state.deviceReady;
+    if (deviceReady) {
+      await updateStatus();
+    }
+    if( deviceReady && address && port && caCertificate) {
+      proxyStatus.textContent = 'Configuring proxy on device...';
+      try {
+        await configureProxy();
+        proxyStatus.textContent = address && port
+          ? `Proxy configured: ${address}:${port}`
+          : 'Proxy configuration cleared';
+        proxyStatus.className = 'status-text success';
+      } catch (error) {
+        proxyStatus.textContent = `Failed to configure proxy: ${error instanceof Error ? error.message : String(error)}`;
+        proxyStatus.className = 'status-text error';
+      }
+    } else {
+      proxyStatus.textContent = address && port
+        ? `Proxy saved. Waiting for device...`
+        : 'Proxy configuration cleared';
+      proxyStatus.className = 'status-text success';
+    }
+
+    setTimeout(() => {
+      proxyStatus.textContent = '';
+    }, 3000);
+
+  } catch (error) {
+    proxyStatus.textContent = `Error: ${error instanceof Error ? error.message : String(error)}`;
+    proxyStatus.className = 'status-text error';
+  }
+});
+
+clearProxyBtn.addEventListener('click', () => {
+  proxyAddressInput.value = '';
+  proxyPortInput.value = '';
+  updateProxyConfig(null, null, null);
+  setDeviceState({ isProxyConfigured: false });
+  proxyStatus.textContent = 'Proxy configuration cleared';
+  proxyStatus.className = 'status-text success';
+  setTimeout(() => {
+    proxyStatus.textContent = '';
+  }, 3000);
+});
+
 
 refreshBtn.addEventListener('click', loadInstalledApps);
 uninstallBtn.addEventListener('click', uninstallSelectedApp);
@@ -586,6 +690,16 @@ window.addEventListener('beforeunload', async () => {
 
 // Initialize device credentials
 initializeCredentials();
+// Load persisted proxy configuration
+loadConfigFromStorage();
+// Load proxy from config into UI
+loadProxyConfigUI();
+// Attempt to configure proxy if config was loaded from storage and device
+// is ready
+const proxy = config.getProxy();
+if (proxy.address && proxy.port && proxy.caCertificate) {
+  console.log('[Init] Proxy configuration found in storage');
+}
 // Initialize device observer
 initializeObserver();
 // Periodically update UI to reflect state changes

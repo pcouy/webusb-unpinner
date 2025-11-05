@@ -14,7 +14,6 @@ export interface DeviceState {
   error: string | null;
   isDownloading: boolean;
   deviceReady: boolean;
-  isProxyConfigured: boolean;
   downloadProgress: number;
 }
 
@@ -28,7 +27,6 @@ let deviceState: DeviceState  = {
   error: null,
   isDownloading: false,
   deviceReady: false,
-  isProxyConfigured: false,
   downloadProgress: 0
 };
 
@@ -162,35 +160,3 @@ export const configureDevice = async ()  => {
   }
 };
 
-export const configureProxy = async (): Promise<void> => {
-  const state = getDeviceState();
-  const proxy = config.getProxy();
-
-  if(!proxy.address || !proxy.port || !proxy.caCertificate) {
-    console.log('[configureProxy] Skipping proxy not fully configured');
-    return;
-  }
-
-  if(state.isProxyConfigured) {
-    return;
-  }
-
-  try {
-    const adbManager = new AdbManager(state.client!);
-
-    // Generate config.js content
-    const configJs = generateFridaConfigJs(proxy);
-    const configJsBlob = new Blob([configJs], { type: 'text/javascript' });
-    const configJsFile = new File([configJsBlob], 'config.js');
-    const configPath = config.devicePath + 'scripts/config.js';
-
-    // Push config.js to device
-    await adbManager.pushFromFile(configJsFile, {devicePath: configPath});
-    console.log('[configureProxy] Proxy configuration pushed to device');
-
-    setDeviceState({ isProxyConfigured: true });
-  } catch (error) {
-    console.error("[configureProxy] Error during proxy configuration: ", error);
-    throw error;
-  }
-}

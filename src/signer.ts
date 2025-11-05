@@ -1,5 +1,5 @@
 import { ApkSignerV2 } from "android-package-signer";
-import { derCertficate } from "./config";
+import { config } from "./config";
 
 export interface CertInstance {
   password: string,
@@ -55,7 +55,7 @@ async function signPackageCert(
       countryCode: cert.countryCode,
     });
   } else {
-    base64Der = derCertficate;
+    base64Der = config.signDerCertficate;
   }
 
   try {

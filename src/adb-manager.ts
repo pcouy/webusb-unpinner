@@ -524,5 +524,17 @@ export class AdbManager {
     }
   }
 
+  /**
+   * A very rudimental way to chekc if the proxy was configured or not
+   */
+  async isProxyConfigured(): Promise<boolean> {
+    try {
+      const result = await this.adbRun(["ls", `${config.devicePath}scripts/config.js`]);
+      return result.exitCode === 0;
+    } catch(error) {
+      console.warn("[isProxyConfigured] Error during config check ", error);
+      return false;
+    }
+  }
 
 }

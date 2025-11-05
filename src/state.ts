@@ -2,7 +2,7 @@ import { Adb, AdbDaemonDevice, AdbDaemonConnection, AdbDaemonTransport} from "@y
 import AdbWebCredentialStore from "@yume-chan/adb-credential-web";
 // import { Consumable, ReadableWritablePair } from "@yume-chan/stream-extra";
 import { AdbManager } from "./adb-manager";
-import { config, generateFridaConfigJs } from "./config";
+import { config } from "./config";
 
 export interface DeviceState {
   device: AdbDaemonDevice | null;
@@ -146,7 +146,6 @@ export const configureDevice = async ()  => {
         'libgadget.so',
         'libgadget.config.so',
         'scripts/hide-debugger.js',
-        'scripts/httptoolkit-unpinner.js',
       ];
 
       const results = await Promise.all(

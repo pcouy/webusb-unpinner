@@ -529,7 +529,7 @@ export class AdbManager {
    */
   async isProxyConfigured(): Promise<boolean> {
     try {
-      const result = await this.adbRun(["ls", `${config.devicePath}scripts/config.js`]);
+      const result = await this.adbRun(["ls", `${config.devicePath}scripts/httptoolkit-unpinner.js`]);
       return result.exitCode === 0;
     } catch(error) {
       console.warn("[isProxyConfigured] Error during config check ", error);

@@ -587,11 +587,26 @@ saveProxyBtn.addEventListener('click', async () => {
 
     const adbManager = new AdbManager(state.client);
     const configContent = generateFridaConfigJs({address, port, caCertificate});
-    const configJsBlob = new Blob([configContent], { type: 'text/javascript' });
-    const configJsFile = new File([configJsBlob], 'config.js');
-    const configPath = config.devicePath + 'scripts/config.js';
 
-    await adbManager.pushFromFile(configJsFile, {devicePath: configPath});
+    // Fetch unpinning script from static
+    const remotePath = config.backendUrl + 'static/scripts/httptoolkit-unpinner.js';
+    const response = await fetch(remotePath);
+    if(!response.ok) {
+      console.error(`Failed to fetch ${remotePath}: error ${response.status}`);
+      return;
+    }
+
+    // Prepend config to generic unpinning script
+    const content = await response.text();
+    const contentArray = [configContent, content];
+    const monolithicScript = contentArray.join('\n\n');
+
+
+    const scriptBlob = new Blob([monolithicScript], { type: 'text/javascript' });
+    const scriptFile = new File([scriptBlob], 'httptoolkit-unpinner.js');
+    const scriptPath = config.devicePath + 'scripts/httptoolkit-unpinner.js';
+
+    await adbManager.pushFromFile(scriptFile, {devicePath: scriptPath});
 
 
     proxyStatus.textContent = `Proxy configured: ${address}:${port}`;

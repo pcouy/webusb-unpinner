@@ -29,8 +29,8 @@ export function generateFridaConfigJs(proxy: ProxyConfig): string {
 const CERT_PEM = \`${certPem}\`;
 const PROXY_HOST = '${host}';
 const PROXY_PORT = ${port};
-const DEBUG_MODE = false;
 `;
+
 }
 
 

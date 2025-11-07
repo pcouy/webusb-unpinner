@@ -1,4 +1,23 @@
 {
+  "name": "WebUSB Unpinner",
+  "version": "0.1.0",
+  "description": "WebUSB-based Android HTTPS unpinning framework",
+  "license": "AGPL-3.0",
+  "author": "Fisiognomico",
+  "homepage": "https://github.com/fisiognomico/webusb-unpinner.git",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fisiognomico/webusb-unpinner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fisiognomico/webusb-unpinner/issues"
+  },
+
+  "keywords": ["android", "adb", "webusb", "frida", "ssl unpinnig"],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+
   "scripts": {
     "build": "tsc",
     "build:browser": "webpack"

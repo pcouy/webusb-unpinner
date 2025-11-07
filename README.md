@@ -1,4 +1,4 @@
-# Scorbuto
+# WebUSB Unpinner
 
 This project aims to become a WebUSB based Android HTTPS unpinning framework.
 Its currently under heavy development and it employs only experimental features.

@@ -30,6 +30,7 @@ const caCertificateInput = document.getElementById('caCertificate') as HTMLTextA
 const saveProxyBtn = document.getElementById('saveProxyBtn') as HTMLButtonElement;
 const clearProxyBtn = document.getElementById('clearProxyBtn') as HTMLButtonElement;
 const proxyStatus = document.getElementById('proxyStatus')!;
+const hideCertificateCheckbox = document.getElementById('hideCertificate') as HTMLInputElement;
 
 // Browser compatibility check
 if (!navigator.usb) {
@@ -579,6 +580,8 @@ async function initializeAutoConfig() {
     if (state.client) {
       saveProxyBtn.click();
     }
+  } else {
+    return;
   }
 }
 
@@ -650,6 +653,14 @@ refreshBtn.addEventListener('click', loadInstalledApps);
 uninstallBtn.addEventListener('click', uninstallSelectedApp);
 appList.addEventListener('change', () => {
   uninstallBtn.disabled = !appList.value;
+});
+
+hideCertificateCheckbox.addEventListener('change', () => {
+  if (hideCertificateCheckbox.checked) {
+    caCertificateInput.classList.add('hidden-cert');
+  } else {
+    caCertificateInput.classList.remove('hidden-cert');
+  }
 });
 
 

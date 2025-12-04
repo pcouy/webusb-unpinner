@@ -12,12 +12,16 @@
   "bugs": {
     "url": "https://github.com/fisiognomico/webusb-unpinner/issues"
   },
-
-  "keywords": ["android", "adb", "webusb", "frida", "ssl unpinnig"],
+  "keywords": [
+    "android",
+    "adb",
+    "webusb",
+    "frida",
+    "ssl unpinnig"
+  ],
   "engines": {
     "node": ">=16.0.0"
   },
-
   "scripts": {
     "dev": "webpack serve --mode development",
     "build": "npm run build:browser",

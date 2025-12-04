@@ -4,6 +4,8 @@
  * Each chunk wraps its binary data and knows how to modify itself
  */
 
+import { Buffer } from 'buffer';
+
 import BinaryXML from 'binary-xml';
 
 class StringPoolChunk {

@@ -296,6 +296,20 @@
   .config-buttons .btn {
     flex: 1;
   }
+  .config-textarea.hidden-cert {
+    -webkit-text-security: disc;
+    text-security: disc;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 2px;
+  }
+
+  /* Fallback for browsers that don't support text-security */
+  @supports not (-webkit-text-security: disc) {
+    .config-textarea.hidden-cert {
+      filter: blur(8px);
+      user-select: none;
+    }
+  }
   </style>
 </head>
 <body>
@@ -385,7 +399,11 @@
       </div>
 
       <div class="form-group">
-        <label for="caCertificate">CA Certificate (PEM format):</label>
+        <label for="caCertificate">
+          CA Certificate (PEM format):
+          <input type="checkbox" id="hideCertificate" style="margin-left: 10px;">
+          <span style="font-weight: normal; font-size: 0.9rem;">Hide certificate</span>
+        </label>
         <textarea id="caCertificate" class="config-textarea" placeholder="-----BEGIN CERTIFICATE-----
 [certificate content]
 -----END CERTIFICATE-----"></textarea>

@@ -24,10 +24,6 @@ A browser-based Android HTTPS unpinning and instrumentation framework. **No back
 - Frida gadget injection for already-installed apps
 - Manifest modification for debuggable flag
 
-### Not Yet Supported ⚠️
-- **Running App Instrumentation**: Can only modify apps before installation
-- **Multiple Devices**: Only one device connection at a time
-
 ## Requirements
 
 ### Browser
@@ -105,6 +101,8 @@ Once patched, use tools like mitmproxy or HTTP Toolkit to:
 - Intercept HTTPS traffic
 - Monitor app behavior
 - Modify app logic at runtime
+
+You can read our [accompanying blog post](https://reversing.works/posts/2025/12/webusb-unpinner-network-analysis-for-the-masses/) for a more detailed walk through that includes a video demo.
 
 ## Architecture
 
@@ -313,31 +311,21 @@ Before submitting changes:
 
 ## Known Limitations
 
-### Current Limitations ⚠️
+### Current Limitations
 
 1. **WebUSB Browser Support**
    - Chrome/Edge/Opera only (no Firefox)
    - Some older device drivers may not work
 
-2. **Cannot Modify Running Apps**
-   - Only works for modifying before installation
-   - Cannot dynamically inject into already-running apps
-   - Workaround: Reinstall app after patching
-
-3. **Limited Certificate Pinning Support**
+2. **Limited Certificate Pinning Support**
    - Works for standard TLS verification
    - Some apps implement custom pinning logic
    - May require custom Frida scripts
 
-4. **No OTA Support**
-   - Cannot patch system apps or OTA updates
-   - Requires write access to `/data/`
 
-
-### Future Roadmap 🚀
+### Future Roadmap
 
 - **v0.2.0**: Multiple architecture support.
-- **v0.3.0**: Multi-device support.
 - **v0.4.0**: Better proxy integration & configuration.
 - **v0.5.0**: ADB over TCP support.
 - **v1.0.0**: Comprehensive certificate pinning bypass library.
@@ -346,17 +334,17 @@ Before submitting changes:
 
 ### What This Tool Does
 
-✅ Enables legitimate security research
-✅ Allows app debugging for developers
-✅ Facilitates penetration testing (with permission)
-✅ Provides educational insights into Android internals
+ -  Enables legitimate security research
+ -  Allows app debugging for developers
+ -  Facilitates penetration testing
+ -  Provides educational insights into Android internals
 
 ### What This Tool Cannot Do
 
-❌ Bypass system-level security (SELinux, verified boot)
-❌ Grant permissions that weren't approved in manifest
-❌ Modify system apps without physical device access
-❌ Bypass app runtime integrity checks or anti-hooking techniques.
+ - Bypass system-level security (SELinux, verified boot)
+ - Grant permissions that weren't approved in manifest
+ - Modify system apps without physical device access
+ - Bypass app runtime integrity checks or anti-hooking techniques.
 
 ## Contributing
 
@@ -367,10 +355,6 @@ Contributions are welcome! To contribute:
 3. Make your changes following code style guidelines
 4. Add tests if applicable
 5. Submit a pull request
-
-## ⚠️ Disclaimer
-
-This tool is designed for authorized security research and penetration testing only. Unauthorized access to computer systems is illegal. Users are solely responsible for ensuring they have proper authorization before using this tool on any Android device.
 
 ## License
 

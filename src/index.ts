@@ -690,11 +690,33 @@ window.addEventListener('beforeunload', async () => {
   }
 });
 
-// Initialize device credentials
-initializeCredentials();
-// Initialize device observer
-initializeObserver();
-// Check if a configuration is already present (usually Docker)
-initializeAutoConfig();
-// Periodically update UI to reflect state changes
-setInterval(updateStatus, 10000);
+async function initializeApp() {
+  try {
+    // Initialize device credentials
+    const credentialsReady = initializeCredentials();
+
+    if (!credentialsReady) {
+      statusDiv.textContent = 'Failed to initialize authentication. Try refreshing.';
+      statusDiv.className = 'status error';
+      console.error('Credential initialization failed');
+      // Continue anyway - will retry on connect
+    }
+
+    // Initialize device observer
+    initializeObserver();
+
+    // Check if a configuration is already present (usually Docker)
+    initializeAutoConfig();
+
+    // Periodically update UI to reflect state changes
+    setInterval(updateStatus, 10000);
+
+    console.log('App initialized successfully');
+  } catch (error) {
+    console.error('App initialization error:', error);
+    statusDiv.textContent = 'Initialization failed. Please refresh the page.';
+    statusDiv.className = 'status error';
+  }
+}
+
+initializeApp();

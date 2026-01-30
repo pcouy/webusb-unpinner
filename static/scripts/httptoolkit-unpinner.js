@@ -560,12 +560,38 @@ Java.perform(() => {
     log(`== Proxy configuration overridden to ${PROXY_HOST}:${PROXY_PORT} ==`);
 });
 
-// Android Certificate injection - MODIFIED: Create trust-all trust manager
-Java.perform(() => {
-    // MODIFIED: We now create a TrustManager that trusts ALL certificates
-    // This is necessary for proxies that don't inject their CA into the chain
+// ============================================================================
+// Android Certificate injection - TRUST ALL APPROACH
+// Injects the proxy CA certificate AND accepts all certificates
+// This is needed for:
+// 1. WebView compatibility (needs the CA in TrustedCertificateIndex)
+// 2. mitmproxy compatibility (doesn't inject CA into response chain)
+// ============================================================================
 
-    // Hook TrustedCertificateIndex to trust everything
+// Helper function to build X509Certificate from PEM bytes
+function buildX509CertificateFromBytes(certBytes) {
+    const ByteArrayInputStream = Java.use('java.io.ByteArrayInputStream');
+    const CertFactory = Java.use('java.security.cert.CertificateFactory');
+    const certFactory = CertFactory.getInstance("X.509");
+    return certFactory.generateCertificate(ByteArrayInputStream.$new(certBytes));
+}
+
+Java.perform(() => {
+    // Build our trusted CA certificate from CERT_PEM
+    let trustedCACert = null;
+    try {
+        if (typeof CERT_PEM !== 'undefined' && CERT_PEM && CERT_PEM.trim().length > 0) {
+            const certBytes = Java.use("java.lang.String").$new(CERT_PEM).getBytes();
+            trustedCACert = buildX509CertificateFromBytes(certBytes);
+            log('[+] Built X509Certificate from CERT_PEM');
+        } else {
+            logWarn('[ ] CERT_PEM not defined or empty - certificate injection disabled');
+        }
+    } catch (e) {
+        logWarn(`[ ] Failed to build X509Certificate from CERT_PEM: ${e}`);
+    }
+
+    // Hook TrustedCertificateIndex classes
     [
         'com.android.org.conscrypt.TrustedCertificateIndex',
         'org.conscrypt.TrustedCertificateIndex',
@@ -582,30 +608,87 @@ Java.perform(() => {
             return;
         }
 
-        // MODIFIED: Make findBySubjectAndPublicKey and findByIssuerAndSignature always return a valid result
-        // This effectively makes the system trust any certificate
+        // Method 1: Inject our CA certificate into the index
+        // This is needed for WebView to find our CA when validating
+        if (trustedCACert) {
+            try {
+                // Hook the 'index' method to also add our certificate
+                const indexMethod = TrustedCertificateIndex.index;
+                if (indexMethod) {
+                    indexMethod.implementation = function (cert) {
+                        // Call original to add the provided cert
+                        this.index(cert);
+                        // Also inject our trusted CA
+                        try {
+                            this.index(trustedCACert);
+                        } catch (e) {
+                            // May already be indexed, ignore
+                        }
+                    };
+                }
+            } catch (e) {
+                if (DEBUG_MODE) log(`Could not hook index method: ${e}`);
+            }
+        }
+
+        // Method 2: Hook findBySubjectAndPublicKey - TRUST ALL
         try {
             TrustedCertificateIndex.findBySubjectAndPublicKey.implementation = function (cert) {
-                // Return the cert itself as trusted
+                // Always return the cert itself as trusted
+                if (DEBUG_MODE) log('[TrustedCertificateIndex] Trust-all: accepting cert');
                 return cert;
             };
         } catch (e) {
             if (DEBUG_MODE) log(`Could not hook findBySubjectAndPublicKey: ${e}`);
         }
 
+        // Method 3: Hook findByIssuerAndSignature - TRUST ALL
         try {
             TrustedCertificateIndex.findByIssuerAndSignature.implementation = function (cert) {
-                // Return the cert itself as trusted
+                // Always return the cert itself as trusted
+                if (DEBUG_MODE) log('[TrustedCertificateIndex] Trust-all: accepting cert for issuer check');
                 return cert;
             };
         } catch (e) {
             if (DEBUG_MODE) log(`Could not hook findByIssuerAndSignature: ${e}`);
         }
 
-        if (DEBUG_MODE) log(`[+] Patched ${TrustedCertificateIndexClassname} to trust all certs`);
+        // Method 4: Hook findAllByIssuerAndSignature for WebView which may use this
+        try {
+            const findAllMethod = TrustedCertificateIndex.findAllByIssuerAndSignature;
+            if (findAllMethod) {
+                findAllMethod.implementation = function (cert) {
+                    const Set = Java.use('java.util.HashSet');
+                    const resultSet = Set.$new();
+                    
+                    // Add our trusted CA if we have one
+                    if (trustedCACert) {
+                        try {
+                            resultSet.add(trustedCACert);
+                        } catch (e) {}
+                    }
+                    
+                    // Also add the cert itself (trust-all)
+                    try {
+                        resultSet.add(cert);
+                    } catch (e) {}
+                    
+                    if (DEBUG_MODE) log('[TrustedCertificateIndex] findAllByIssuerAndSignature returning set');
+                    return resultSet;
+                };
+            }
+        } catch (e) {
+            if (DEBUG_MODE) log(`Could not hook findAllByIssuerAndSignature: ${e}`);
+        }
+
+        if (trustedCACert) {
+            log(`[+] Injected cert into ${TrustedCertificateIndexClassname}`);
+        } else {
+            log(`[+] Patched ${TrustedCertificateIndexClassname} (trust-all mode)`);
+        }
     });
 
-    log('== System certificate trust disabled (trusting all) ==');
+    log('== System certificate trust modified (CA injected + trust-all) ==');
 });
 
 // Bypass SSL pinning - MODIFIED: Accept all certificates

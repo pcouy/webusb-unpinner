@@ -1,6 +1,46 @@
+// ============== NATIVE LOGCAT LOGGING ==============
+const LOG_INFO = 4;
+const LOG_WARN = 5;
+const LOG_ERROR = 6;
+
+let _log_write = null;
+let _log_tag = null;
+
+try {
+    _log_write = new NativeFunction(
+        Module.getExportByName(null, '__android_log_write'),
+        'int', ['int', 'pointer', 'pointer']
+    );
+    _log_tag = Memory.allocUtf8String("UNPIN");
+} catch (e) {
+    // Fallback - won't reach logcat but at least won't crash
+}
+
+function log(msg) {
+    if (_log_write && _log_tag) {
+        const msgPtr = Memory.allocUtf8String(msg);
+        _log_write(LOG_INFO, _log_tag, msgPtr);
+    }
+}
+
+function logWarn(msg) {
+    if (_log_write && _log_tag) {
+        const msgPtr = Memory.allocUtf8String(msg);
+        _log_write(LOG_WARN, _log_tag, msgPtr);
+    }
+}
+
+function logErr(msg) {
+    if (_log_write && _log_tag) {
+        const msgPtr = Memory.allocUtf8String(msg);
+        _log_write(LOG_ERROR, _log_tag, msgPtr);
+    }
+}
+
 // Modified from https://github.com/httptoolkit/frida-interception-and-unpinning/blob/48fd909ed5e016b771cf4d645ce30cbab217e234
 // Modified to be compatible with mimtproxy and other SSL proxies that do
 // not append their CA to each server response.
+
 // If you like, set to to true to enable extra logging:
 const DEBUG_MODE = false;
 const IGNORED_NON_HTTP_PORTS = [];
@@ -77,7 +117,7 @@ new ApiResolver('module').enumerateMatches('exports:linker*!*dlopen*').forEach((
 const getAnonymousModule = (name, path, handle) => {
     const dlsymAddr = Module.findGlobalExportByName('dlsym');
     if (!dlsymAddr) {
-        console.error(`[!] Cannot find dlsym, cannot get anonymous module info for ${name}`);
+        logErr(`[!] Cannot find dlsym, cannot get anonymous module info for ${name}`);
         return;
     }
 
@@ -125,8 +165,8 @@ const getAnonymousModule = (name, path, handle) => {
 
         conn = systemModule.getExportByName('connect')
     } catch (e) {
-        console.error("Failed to set up native hooks:", e.message);
-        console.warn('Could not initialize system functions to to hook raw traffic');
+        logErr("Failed to set up native hooks:", e.message);
+        logWarn('Could not initialize system functions to to hook raw traffic');
         return;
     }
 
@@ -197,7 +237,7 @@ const getAnonymousModule = (name, path, handle) => {
                         }
                     }
 
-                    console.log(`Manually intercepting ${sockType} connection to ${getReadableAddress(hostBytes, isIPv6)}:${port}`);
+                    log(`Manually intercepting ${sockType} connection to ${getReadableAddress(hostBytes, isIPv6)}:${port}`);
 
                     // Overwrite the port with the proxy port:
                     portAddrBytes.setUint16(0, PROXY_PORT, false); // Big endian
@@ -220,7 +260,7 @@ const getAnonymousModule = (name, path, handle) => {
                 }
             } else {
                 // Should just be unix domain sockets - UDP & TCP are covered above
-                if (DEBUG_MODE) console.log(`Ignoring ${sockType} connection`);
+                if (DEBUG_MODE) log(`Ignoring ${sockType} connection`);
                 this.state = 'ignored';
             }
         },
@@ -236,7 +276,7 @@ const getAnonymousModule = (name, path, handle) => {
                 if (connectSuccess) {
                     handshakeSuccess = performSocksHandshake(this.sockFd, host, port, isIPv6);
                 } else {
-                    console.error(`SOCKS: Failed to connect to proxy at ${PROXY_HOST}:${PROXY_PORT}`);
+                    logErr(`SOCKS: Failed to connect to proxy at ${PROXY_HOST}:${PROXY_PORT}`);
                 }
 
                 if (this.isNonBlocking) {
@@ -248,7 +288,7 @@ const getAnonymousModule = (name, path, handle) => {
                     if (DEBUG_MODE) console.debug(`SOCKS redirect successful for fd ${this.sockFd} to ${readableHost}:${port}`);
                     retval.replace(0);
                 } else {
-                    if (DEBUG_MODE) console.error(`SOCKS redirect FAILED for fd ${this.sockFd}`);
+                    if (DEBUG_MODE) logErr(`SOCKS redirect FAILED for fd ${this.sockFd}`);
                     retval.replace(-1);
                 }
             } else if (DEBUG_MODE) {
@@ -262,7 +302,7 @@ const getAnonymousModule = (name, path, handle) => {
         }
     });
 
-    console.log(`== Redirecting ${
+    log(`== Redirecting ${
         IGNORED_NON_HTTP_PORTS.length === 0
         ? 'all'
         : 'all unrecognized'
@@ -299,18 +339,18 @@ const getAnonymousModule = (name, path, handle) => {
     function performSocksHandshake(sockfd, targetHostBytes, targetPort, isIPv6) {
         const hello = Memory.alloc(3).writeByteArray([0x05, 0x01, 0x00]);
         if (send(sockfd, hello, 3, 0) < 0) {
-            console.error("SOCKS: Failed to send hello");
+            logErr("SOCKS: Failed to send hello");
             return false;
         }
 
         const response = Memory.alloc(2);
         if (recv(sockfd, response, 2, 0) < 0) {
-            console.error("SOCKS: Failed to receive server choice");
+            logErr("SOCKS: Failed to receive server choice");
             return false;
         }
 
         if (response.readU8() !== 0x05 || response.add(1).readU8() !== 0x00) {
-            console.error("SOCKS: Server rejected auth method");
+            logErr("SOCKS: Server rejected auth method");
             return false;
         }
 
@@ -326,19 +366,19 @@ const getAnonymousModule = (name, path, handle) => {
         const reqBuf = Memory.alloc(req.length).writeByteArray(req);
 
         if (send(sockfd, reqBuf, req.length, 0) < 0) {
-            console.error("SOCKS: Failed to send connection request");
+            logErr("SOCKS: Failed to send connection request");
             return false;
         }
 
         const replyHeader = Memory.alloc(4);
         if (recv(sockfd, replyHeader, 4, 0) < 0) {
-            console.error("SOCKS: Failed to receive reply header");
+            logErr("SOCKS: Failed to receive reply header");
             return false;
         }
 
         const replyCode = replyHeader.add(1).readU8();
         if (replyCode !== 0x00) {
-            console.error(`SOCKS: Server returned error code ${replyCode}`);
+            logErr(`SOCKS: Server returned error code ${replyCode}`);
             return false;
         }
 
@@ -374,7 +414,7 @@ TARGET_LIBS.forEach((targetLib) => {
     ) {
         // On iOS, we expect this to always work immediately, so print a warning if we
         // ever have to skip this TLS patching process.
-        console.log(`\n !!! --- Could not load ${targetLib.name} to hook TLS --- !!!`);
+        log(`\n !!! --- Could not load ${targetLib.name} to hook TLS --- !!!`);
     }
 });
 
@@ -392,7 +432,7 @@ function patchTargetLib(targetModule, targetName) {
             // MODIFIED: Always return SSL_VERIFY_OK - no certificate verification
             const hookedCallback = new NativeCallback(function (ssl, out_alert) {
                 if (DEBUG_MODE) {
-                    console.log('[Native TLS] Bypassing certificate verification');
+                    log('[Native TLS] Bypassing certificate verification');
                 }
                 return SSL_VERIFY_OK;
             }, 'int', ['pointer','pointer']);
@@ -423,11 +463,11 @@ function patchTargetLib(targetModule, targetName) {
 
     if (customVerifyAddrs.length) {
         if (DEBUG_MODE) {
-            console.log(`[+] Patched ${customVerifyAddrs.length} ${targetName} verification methods`);
+            log(`[+] Patched ${customVerifyAddrs.length} ${targetName} verification methods`);
         }
-        console.log(`== Hooked native TLS lib ${targetName} ==`);
+        log(`== Hooked native TLS lib ${targetName} ==`);
     } else {
-        console.log(`\n !!! Hooking native TLS lib ${targetName} failed - no verification methods found`);
+        log(`\n !!! Hooking native TLS lib ${targetName} failed - no verification methods found`);
     }
 
     const get_psk_identity_addr = targetModule.findExportByName("SSL_get_psk_identity");
@@ -438,7 +478,7 @@ function patchTargetLib(targetModule, targetName) {
             return "PSK_IDENTITY_PLACEHOLDER";
         }, 'pointer', ['pointer']));
     } else if (customVerifyAddrs.length) {
-        console.log(`Patched ${customVerifyAddrs.length} custom_verify methods, but couldn't find get_psk_identity`);
+        log(`Patched ${customVerifyAddrs.length} custom_verify methods, but couldn't find get_psk_identity`);
     }
 }
 
@@ -466,14 +506,14 @@ Java.perform(() => {
     ];
     Java.use('java.lang.System').clearProperty.implementation = function (property) {
         if (controlledSystemProperties.includes(property)) {
-            if (DEBUG_MODE) console.log(`Ignoring attempt to clear ${property} system property`);
+            if (DEBUG_MODE) log(`Ignoring attempt to clear ${property} system property`);
             return this.getProperty(property);
         }
         return this.clearProperty(...arguments);
     }
     Java.use('java.lang.System').setProperty.implementation = function (property) {
         if (controlledSystemProperties.includes(property)) {
-            if (DEBUG_MODE) console.log(`Ignoring attempt to override ${property} system property`);
+            if (DEBUG_MODE) log(`Ignoring attempt to override ${property} system property`);
             return this.getProperty(property);
         }
         return this.setProperty(...arguments);
@@ -485,7 +525,7 @@ Java.perform(() => {
     ConnectivityManager.getDefaultProxy.implementation = () => ProxyInfo.$new(PROXY_HOST, PROXY_PORT, '');
     // (Not clear if this works 100% - implying there are ConnectivityManager subclasses handling this)
 
-    console.log(`== Proxy system configuration overridden to ${PROXY_HOST}:${PROXY_PORT} ==`);
+    log(`== Proxy system configuration overridden to ${PROXY_HOST}:${PROXY_PORT} ==`);
 
     // Configure the proxy indirectly, by overriding the return value for all ProxySelectors everywhere:
     const Collections = Java.use('java.util.Collections');
@@ -512,12 +552,12 @@ Java.perform(() => {
     // Replace the 'select' of every implementation, so they all send traffic to us:
     proxySelectorClasses.forEach(ProxySelectorCls => {
         if (DEBUG_MODE) {
-            console.log('Rewriting', ProxySelectorCls.toString());
+            log('Rewriting', ProxySelectorCls.toString());
         }
         ProxySelectorCls.select.implementation = () => getTargetProxyList()
     });
 
-    console.log(`== Proxy configuration overridden to ${PROXY_HOST}:${PROXY_PORT} ==`);
+    log(`== Proxy configuration overridden to ${PROXY_HOST}:${PROXY_PORT} ==`);
 });
 
 // Android Certificate injection - MODIFIED: Create trust-all trust manager
@@ -537,7 +577,7 @@ Java.perform(() => {
         } catch (e) {
             if (i === 0) {
                 // First one is required on modern Android
-                console.warn(`${TrustedCertificateIndexClassname} not found - certificate injection may not work`);
+                logWarn(`${TrustedCertificateIndexClassname} not found - certificate injection may not work`);
             }
             return;
         }
@@ -550,7 +590,7 @@ Java.perform(() => {
                 return cert;
             };
         } catch (e) {
-            if (DEBUG_MODE) console.log(`Could not hook findBySubjectAndPublicKey: ${e}`);
+            if (DEBUG_MODE) log(`Could not hook findBySubjectAndPublicKey: ${e}`);
         }
 
         try {
@@ -559,13 +599,13 @@ Java.perform(() => {
                 return cert;
             };
         } catch (e) {
-            if (DEBUG_MODE) console.log(`Could not hook findByIssuerAndSignature: ${e}`);
+            if (DEBUG_MODE) log(`Could not hook findByIssuerAndSignature: ${e}`);
         }
 
-        if (DEBUG_MODE) console.log(`[+] Patched ${TrustedCertificateIndexClassname} to trust all certs`);
+        if (DEBUG_MODE) log(`[+] Patched ${TrustedCertificateIndexClassname} to trust all certs`);
     });
 
-    console.log('== System certificate trust disabled (trusting all) ==');
+    log('== System certificate trust disabled (trusting all) ==');
 });
 
 // Bypass SSL pinning - MODIFIED: Accept all certificates
@@ -578,7 +618,7 @@ const TRUST_ALL_CERTS = () => {
     return (_certs, _authType) => {
         // Do nothing - accept all certificates
         if (DEBUG_MODE) {
-            console.log('[TrustManager] Accepting all certificates');
+            log('[TrustManager] Accepting all certificates');
         }
     };
 };
@@ -587,7 +627,7 @@ const TRUST_ALL_CERTS = () => {
 const TRUST_ALL_CERTS_EXTENDED = () => {
     return (certs, _authType, _hostname) => {
         if (DEBUG_MODE) {
-            console.log('[TrustManager Extended] Accepting all certificates');
+            log('[TrustManager Extended] Accepting all certificates');
         }
         return Java.use('java.util.Arrays').asList(certs);
     };
@@ -931,7 +971,7 @@ const getJavaClassIfExists = (clsName) => {
 }
 
 Java.perform(function () {
-    if (DEBUG_MODE) console.log('\n    === Disabling all recognized unpinning libraries ===');
+    if (DEBUG_MODE) log('\n    === Disabling all recognized unpinning libraries ===');
 
     const classesToPatch = Object.keys(PINNING_FIXES);
 
@@ -940,7 +980,7 @@ Java.perform(function () {
         if (!TargetClass) {
             // We skip patches for any classes that don't seem to be present. This is common
             // as not all libraries we handle are necessarily used.
-            if (DEBUG_MODE) console.log(`[ ] ${targetClassName} *`);
+            if (DEBUG_MODE) log(`[ ] ${targetClassName} *`);
             return;
         }
 
@@ -990,7 +1030,7 @@ Java.perform(function () {
             // happen due to methods that only appear in certain library versions or whose signatures
             // have changed over time.
             if (targetMethodImplementations.length === 0) {
-                if (DEBUG_MODE) console.log(`[ ] ${targetClassName} ${methodDescription}`);
+                if (DEBUG_MODE) log(`[ ] ${targetClassName} ${methodDescription}`);
                 return;
             }
 
@@ -1004,29 +1044,29 @@ Java.perform(function () {
                     if (DEBUG_MODE) {
                         // Log each hooked method as it's called:
                         targetMethod.implementation = function () {
-                            console.log(` => ${patchName}`);
+                            log(` => ${patchName}`);
                             return newImplementation.apply(this, arguments);
                         }
                     } else {
                         targetMethod.implementation = newImplementation;
                     }
 
-                    if (DEBUG_MODE) console.log(`[+] ${patchName}`);
+                    if (DEBUG_MODE) log(`[+] ${patchName}`);
                     patchApplied = true;
                 } catch (e) {
                     // In theory, errors like this should never happen - it means the patch is broken
                     // (e.g. some dynamic patch building fails completely)
-                    console.error(`[!] ERROR: ${patchName} failed: ${e}`);
+                    logErr(`[!] ERROR: ${patchName} failed: ${e}`);
                 }
             })
         });
 
         if (!patchApplied) {
-            console.warn(`[!] Matched class ${targetClassName} but could not patch any methods`);
+            logWarn(`[!] Matched class ${targetClassName} but could not patch any methods`);
         }
     });
 
-    console.log('== Certificate unpinning completed ==');
+    log('== Certificate unpinning completed ==');
 });
 
 // Android SSL unpinning fallback - MODIFIED: Accept all certificates
@@ -1121,7 +1161,7 @@ Java.perform(function () {
         const buildUnhandledErrorPatcher = (errorClassName, originalConstructor) => {
             return function (errorArg) {
                 try {
-                    console.log('\n !!! --- Unexpected TLS failure --- !!!');
+                    log('\n !!! --- Unexpected TLS failure --- !!!');
 
                     // This may be a message, or an cause, or plausibly maybe other types? But
                     // stringifying gives something consistently message-shaped, so that'll do.
@@ -1138,15 +1178,15 @@ Java.perform(function () {
                     const methodName = callingFunctionStack.getMethodName();
 
                     const errorTypeName = errorClassName.split('.').slice(-1)[0];
-                    console.log(`      ${errorTypeName}: ${errorMessage}`);
-                    console.log(`      Thrown by ${className}->${methodName}`);
+                    log(`      ${errorTypeName}: ${errorMessage}`);
+                    log(`      Thrown by ${className}->${methodName}`);
 
                     const callingClass = Java.use(className);
                     const callingMethod = callingClass[methodName];
 
                     callingMethod.overloads.forEach((failingMethod) => {
                         if (failingMethod.implementation) {
-                            console.warn('      Already patched - but still failing!')
+                            logWarn('      Already patched - but still failing!')
                             return; // Already patched by Frida - skip it
                         }
 
@@ -1154,21 +1194,21 @@ Java.perform(function () {
                         if (isOkHttpCheckMethod(errorMessage, failingMethod)) {
                             // See okhttp3.CertificatePinner patches in unpinning script:
                             failingMethod.implementation = () => {
-                                if (DEBUG_MODE) console.log(` => Fallback OkHttp patch`);
+                                if (DEBUG_MODE) log(` => Fallback OkHttp patch`);
                             };
-                            console.log(`      [+] ${className}->${methodName} (fallback OkHttp patch)`);
+                            log(`      [+] ${className}->${methodName} (fallback OkHttp patch)`);
                         } else if (isAppmattusOkHttpInterceptMethod(errorMessage, failingMethod)) {
                             // See Appmattus CertificateTransparencyInterceptor patch in unpinning script:
                             const chainType = Java.use(failingMethod.argumentTypes[0].className);
                             const responseTypeName = failingMethod.returnType.className;
                             const okHttpChain = matchOkHttpChain(chainType, responseTypeName);
                             failingMethod.implementation = (chain) => {
-                                if (DEBUG_MODE) console.log(` => Fallback Appmattus+OkHttp patch`);
+                                if (DEBUG_MODE) log(` => Fallback Appmattus+OkHttp patch`);
                                 const proceed = chain[okHttpChain.proceedMethodName].bind(chain);
                                 const request = chain[okHttpChain.requestFieldName].value;
                                 return proceed(request);
                             };
-                            console.log(`      [+] ${className}->${methodName} (fallback Appmattus+OkHttp patch)`);
+                            log(`      [+] ${className}->${methodName} (fallback Appmattus+OkHttp patch)`);
                         } else if (isX509TrustManager(callingClass, methodName)) {
                             const argumentTypes = failingMethod.argumentTypes.map(t => t.className);
                             const returnType = failingMethod.returnType.className;
@@ -1180,11 +1220,11 @@ Java.perform(function () {
                             ) {
                                 // MODIFIED: Just accept everything
                                 failingMethod.implementation = (_certs, _authType) => {
-                                    if (DEBUG_MODE) console.log(` => Fallback X509TrustManager patch of ${
+                                    if (DEBUG_MODE) log(` => Fallback X509TrustManager patch of ${
                                         className
                                     } base method - accepting all`);
                                 };
-                                console.log(`      [+] ${className}->${methodName} (fallback X509TrustManager base patch - trust all)`);
+                                log(`      [+] ${className}->${methodName} (fallback X509TrustManager base patch - trust all)`);
                             } else if (
                                 argumentTypes.length === 3 &&
                                 argumentTypes.every((t, i) => t === EXTENDED_METHOD_ARGUMENTS[i]) &&
@@ -1192,27 +1232,27 @@ Java.perform(function () {
                             ) {
                                 // MODIFIED: Accept everything and return the certs
                                 failingMethod.implementation = function (certs, _authType, _hostname) {
-                                    if (DEBUG_MODE) console.log(` => Fallback X509TrustManager patch of ${
+                                    if (DEBUG_MODE) log(` => Fallback X509TrustManager patch of ${
                                         className
                                     } extended method - accepting all`);
                                     return Java.use('java.util.Arrays').asList(certs);
                                 };
-                                console.log(`      [+] ${className}->${methodName} (fallback X509TrustManager ext patch - trust all)`);
+                                log(`      [+] ${className}->${methodName} (fallback X509TrustManager ext patch - trust all)`);
                             } else {
-                                console.warn(`      [ ] Skipping unrecognized checkServerTrusted signature in class ${
+                                logWarn(`      [ ] Skipping unrecognized checkServerTrusted signature in class ${
                                     callingClass.class.getName()
                                 }`);
                             }
                         } else if (isMetaPinningMethod(errorMessage, failingMethod)) {
                             // MODIFIED: Accept all certificates
                             failingMethod.implementation = function (_certs) {
-                                if (DEBUG_MODE) console.log(` => Fallback patch for meta proxygen pinning - accepting all`);
+                                if (DEBUG_MODE) log(` => Fallback patch for meta proxygen pinning - accepting all`);
                                 return; // Accept everything
                             }
 
-                            console.log(`      [+] ${className}->${methodName} (Meta proxygen pinning fallback patch - trust all)`);
+                            log(`      [+] ${className}->${methodName} (Meta proxygen pinning fallback patch - trust all)`);
                         } else {
-                            console.error('      [ ] Unrecognized TLS error - this must be patched manually');
+                            logErr('      [ ] Unrecognized TLS error - this must be patched manually');
                             return;
                             // Later we could try to cover other cases here - automatically recognizing other
                             // OkHttp interceptors for example, or potentially other approaches, but we need
@@ -1220,8 +1260,8 @@ Java.perform(function () {
                         }
                     });
                 } catch (e) {
-                    console.log('      [ ] Failed to automatically patch failure');
-                    console.warn(e);
+                    log('      [ ] Failed to automatically patch failure');
+                    logWarn(e);
                 }
 
                 return originalConstructor.call(this, ...arguments);
@@ -1242,10 +1282,10 @@ Java.perform(function () {
             });
         })
 
-        console.log('== Unpinning fallback auto-patcher installed ==');
+        log('== Unpinning fallback auto-patcher installed ==');
     } catch (err) {
-        console.error(err);
-        console.error(' !!! --- Unpinning fallback auto-patcher installation failed --- !!!');
+        logErr(err);
+        logErr(' !!! --- Unpinning fallback auto-patcher installation failed --- !!!');
     }
 
 });

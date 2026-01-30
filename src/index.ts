@@ -612,7 +612,7 @@ saveProxyBtn.addEventListener('click', async () => {
     const configContent = generateFridaConfigJs({address, port, caCertificate});
 
     // Fetch unpinning script from static
-    const remotePath = config.backendUrl + 'static/scripts/httptoolkit-unpinner.js';
+    const remotePath = config.serverUri + 'static/scripts/httptoolkit-unpinner.js';
     const response = await fetch(remotePath);
     if(!response.ok) {
       console.error(`Failed to fetch ${remotePath}: error ${response.status}`);

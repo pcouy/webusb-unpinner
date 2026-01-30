@@ -189,10 +189,15 @@ WebUSB-unpinner/
 Set via webpack DefinePlugin or `.env`:
 
 ```bash
-BACKEND_URL=http://localhost:9000/
+SERVER_URI=http://localhost:9000/
 DEVICE_PATH=/data/local/tmp/
 NODE_ENV=development
 ```
+
+** SERVER_URI ** address where the application is reachable
+** DEVICE_PATH ** local writable folder on Android where scripts will be
+dropped.
+** NODE_ENV ** development or production environment are supported
 
 ### Customizing the Certificate
 
